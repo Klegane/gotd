@@ -1,0 +1,195 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  role          String    @default("user")
+  accounts      Account[]
+  sessions      Session[]
+  votes         Vote[]
+  preferences   UserGamePreference[]
+  messages      SessionMessage[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Game {
+  id            String   @id @default(cuid())
+  bggId         Int      @unique
+  name          String
+  yearPublished Int?
+  imageUrl      String?
+  thumbnailUrl  String?
+  minPlayers    Int?
+  maxPlayers    Int?
+  playingTime   Int?
+  averageWeight Float?
+  metadataJson  String?
+  active        Boolean  @default(true)
+  isExpansion   Boolean  @default(false)
+  parentGameId  String?
+  parentGame    Game?    @relation("GameExpansions", fields: [parentGameId], references: [id])
+  expansions    Game[]   @relation("GameExpansions")
+  importedAt    DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  votes         Vote[]
+  sessionOptions VotingSessionGameOption[]
+  preferences   UserGamePreference[]
+
+  @@index([active, name])
+  @@index([parentGameId])
+}
+
+model CatalogSyncRun {
+  id             String    @id @default(cuid())
+  sourceUsername String
+  status         String
+  startedAt      DateTime  @default(now())
+  completedAt    DateTime?
+  importedCount  Int       @default(0)
+  activeCount    Int       @default(0)
+  error          String?
+
+  @@index([startedAt])
+}
+
+model Location {
+  id              String          @id @default(cuid())
+  name            String
+  address         String
+  createdByUserId String
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  sessions        VotingSession[]
+
+  @@index([name])
+}
+
+model VotingSession {
+  id              String   @id @default(cuid())
+  localDate       String
+  defaultDailyKey String?  @unique
+  localStartTime  String?
+  localEndTime    String?
+  title           String?
+  notes           String?
+  status          String   @default("open")
+  locationId      String?
+  createdByUserId String?
+  updatedByUserId String?
+  cancelledAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  location        Location? @relation(fields: [locationId], references: [id])
+  votes           Vote[]
+  gameOptions     VotingSessionGameOption[]
+  messages        SessionMessage[]
+
+  @@index([localDate, localStartTime])
+  @@index([status])
+  @@index([locationId])
+}
+
+model SessionMessage {
+  id              String        @id @default(cuid())
+  votingSessionId String
+  userId          String
+  content         String
+  createdAt       DateTime      @default(now())
+  votingSession   VotingSession @relation(fields: [votingSessionId], references: [id], onDelete: Cascade)
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([votingSessionId, createdAt])
+  @@index([userId])
+}
+
+model Vote {
+  id              String        @id @default(cuid())
+  votingSessionId String
+  userId          String
+  gameId          String
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  votingSession   VotingSession @relation(fields: [votingSessionId], references: [id], onDelete: Cascade)
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  game            Game          @relation(fields: [gameId], references: [id])
+
+  @@unique([votingSessionId, userId])
+  @@index([gameId])
+  @@index([userId])
+}
+
+model VotingSessionGameOption {
+  id              String        @id @default(cuid())
+  votingSessionId String
+  gameId          String
+  addedByUserId   String?
+  createdAt       DateTime      @default(now())
+  votingSession   VotingSession @relation(fields: [votingSessionId], references: [id], onDelete: Cascade)
+  game            Game          @relation(fields: [gameId], references: [id])
+
+  @@unique([votingSessionId, gameId])
+  @@index([gameId])
+  @@index([addedByUserId])
+}
+
+model UserGamePreference {
+  id         String   @id @default(cuid())
+  userId     String
+  gameId     String
+  preference String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  game       Game     @relation(fields: [gameId], references: [id])
+
+  @@unique([userId, gameId])
+  @@index([gameId])
+  @@index([preference])
+}

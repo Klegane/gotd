@@ -1,0 +1,9 @@
+process.env.APP_URL ??= "http://localhost:3000";
+process.env.NEXTAUTH_URL ??= process.env.APP_URL;
+process.env.AUTH_SECRET ??= "test-secret-at-least-32-characters-long";
+process.env.NEXTAUTH_SECRET ??= process.env.AUTH_SECRET;
+process.env.GOOGLE_CLIENT_ID ??= "test-google-client-id";
+process.env.GOOGLE_CLIENT_SECRET ??= "test-google-client-secret";
+process.env.BGG_USERNAME ??= "test-bgg-user";
+process.env.DATABASE_URL ??= "file:./test.db";
+process.env.APP_TIMEZONE ??= "Europe/Madrid";

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(loop-init)",
+      "Bash(rm -rf .loop/)",
+      "Bash(mkdir -p .loop/phases)"
+    ]
+  }
+}
