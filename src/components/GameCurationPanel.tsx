@@ -1,10 +1,20 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 
-import { playersLabel, type Game } from "@/components/VotingDashboard";
-
-type SortMode = "best-fit" | "selected" | "name" | "min-players" | "max-players" | "weight";
+import { HighlightedGameName } from "@/components/HighlightedGameName";
+import { GameActiveFilterSummary, GameMetadataFilterControls } from "@/components/GameMetadataFilters";
+import {
+  activeGameDiscoveryFilters,
+  createEmptyMetadataFilters,
+  createEmptyRangeFilters,
+  filterAndSortGames,
+  gameImageSrc,
+  gameSuggestions,
+  playersLabel,
+  type SortMode
+} from "@/components/gameDiscovery";
+import type { Game } from "@/components/VotingDashboard";
 
 type GameCurationPanelProps = {
   idPrefix?: string;
@@ -26,42 +36,32 @@ export function GameCurationPanel({
   const [query, setQuery] = useState("");
   const [minPlayers, setMinPlayers] = useState("");
   const [maxPlayers, setMaxPlayers] = useState("");
+  const [metadataFilters, setMetadataFilters] = useState(createEmptyMetadataFilters);
+  const [rangeFilters, setRangeFilters] = useState(createEmptyRangeFilters);
+  const [resetSignal, setResetSignal] = useState(0);
   const [sortMode, setSortMode] = useState<SortMode>("best-fit");
   const selectedSet = useMemo(() => new Set(selectedGameIds), [selectedGameIds]);
-  const normalizedQuery = normalize(query);
-  const minPlayerCount = parsePositiveInt(minPlayers);
-  const maxPlayerCount = parsePositiveInt(maxPlayers);
   const titleId = `${idPrefix}-title`;
 
-  const suggestions = useMemo(() => {
-    if (!normalizedQuery) {
-      return [];
-    }
+  const suggestions = useMemo(() => gameSuggestions(games, query), [games, query]);
 
-    return games
-      .filter((game) => normalize(game.name).includes(normalizedQuery))
-      .slice(0, 6);
-  }, [games, normalizedQuery]);
-
-  const filteredGames = useMemo(() => {
-    return games
-      .filter((game) => {
-        if (normalizedQuery && !normalize(game.name).includes(normalizedQuery)) {
-          return false;
-        }
-
-        if (minPlayerCount && game.maxPlayers !== null && game.maxPlayers < minPlayerCount) {
-          return false;
-        }
-
-        if (maxPlayerCount && game.minPlayers !== null && game.minPlayers > maxPlayerCount) {
-          return false;
-        }
-
-        return true;
-      })
-      .sort((left, right) => compareGames(left, right, sortMode, selectedSet, minPlayerCount, maxPlayerCount));
-  }, [games, maxPlayerCount, minPlayerCount, normalizedQuery, selectedSet, sortMode]);
+  const filteredGames = useMemo(
+    () =>
+      filterAndSortGames(games, {
+        query,
+        minPlayers,
+        maxPlayers,
+        sortMode,
+        metadataFilters,
+        rangeFilters,
+        selectedIds: selectedSet
+      }),
+    [games, maxPlayers, metadataFilters, minPlayers, query, rangeFilters, selectedSet, sortMode]
+  );
+  const activeFilters = useMemo(
+    () => activeGameDiscoveryFilters({ query, minPlayers, maxPlayers, metadataFilters, rangeFilters }),
+    [maxPlayers, metadataFilters, minPlayers, query, rangeFilters]
+  );
 
   function toggleGame(gameId: string) {
     onSelectedGameIdsChange(
@@ -79,6 +79,15 @@ export function GameCurationPanel({
     }
 
     onSelectedGameIdsChange([...nextIds]);
+  }
+
+  function resetFilters() {
+    setQuery("");
+    setMinPlayers("");
+    setMaxPlayers("");
+    setMetadataFilters(createEmptyMetadataFilters());
+    setRangeFilters(createEmptyRangeFilters());
+    setResetSignal((current) => current + 1);
   }
 
   return (
@@ -113,7 +122,7 @@ export function GameCurationPanel({
                   key={game.id}
                   onClick={() => setQuery(game.name)}
                 >
-                  <HighlightedName name={game.name} query={query} />
+                  <HighlightedGameName name={game.name} query={query} />
                 </button>
               ))}
             </div>
@@ -164,6 +173,23 @@ export function GameCurationPanel({
         </label>
       </div>
 
+      <GameMetadataFilterControls
+        idPrefix={`${idPrefix}-metadata-filter`}
+        games={games}
+        metadataFilters={metadataFilters}
+        rangeFilters={rangeFilters}
+        resetSignal={resetSignal}
+        onMetadataFiltersChange={setMetadataFilters}
+        onRangeFiltersChange={setRangeFilters}
+      />
+
+      <GameActiveFilterSummary
+        filters={activeFilters}
+        resultCount={filteredGames.length}
+        totalCount={games.length}
+        onReset={resetFilters}
+      />
+
       <div id={`${idPrefix}-actions`} className="curation-actions">
         <button
           id={`${idPrefix}-add-filtered-button`}
@@ -209,8 +235,15 @@ export function GameCurationPanel({
               checked={selectedSet.has(game.id)}
               onChange={() => toggleGame(game.id)}
             />
+            <img
+              id={`${idPrefix}-thumbnail-${game.id}`}
+              src={gameImageSrc(game)}
+              alt=""
+              className="curation-row-thumb"
+              loading="lazy"
+            />
             <span>
-              <strong><HighlightedName name={game.name} query={query} /></strong>
+              <strong><HighlightedGameName name={game.name} query={query} /></strong>
               <small>
                 {playersLabel(game)}
                 {game.playingTime ? ` · ${game.playingTime} min` : ""}
@@ -225,118 +258,4 @@ export function GameCurationPanel({
       </div>
     </div>
   );
-}
-
-function HighlightedName({ name, query }: { name: string; query: string }) {
-  const trimmedQuery = query.trim();
-
-  if (!trimmedQuery) {
-    return <>{name}</>;
-  }
-
-  const index = name.toLocaleLowerCase("es-ES").indexOf(trimmedQuery.toLocaleLowerCase("es-ES"));
-
-  if (index < 0) {
-    return <>{name}</>;
-  }
-
-  return (
-    <>
-      {name.slice(0, index)}
-      <mark>{name.slice(index, index + trimmedQuery.length)}</mark>
-      {name.slice(index + trimmedQuery.length)}
-    </>
-  );
-}
-
-function compareGames(
-  left: Game,
-  right: Game,
-  sortMode: SortMode,
-  selectedSet: Set<string>,
-  minPlayers: number | null,
-  maxPlayers: number | null
-): number {
-  if (sortMode === "selected") {
-    const selectedDifference = Number(selectedSet.has(right.id)) - Number(selectedSet.has(left.id));
-
-    if (selectedDifference !== 0) {
-      return selectedDifference;
-    }
-  }
-
-  if (sortMode === "min-players") {
-    return compareNullableNumbers(left.minPlayers, right.minPlayers) || compareNames(left, right);
-  }
-
-  if (sortMode === "max-players") {
-    return compareNullableNumbers(left.maxPlayers, right.maxPlayers) || compareNames(left, right);
-  }
-
-  if (sortMode === "weight") {
-    return compareNullableNumbers(left.averageWeight, right.averageWeight) || compareNames(left, right);
-  }
-
-  if (sortMode === "best-fit") {
-    const fitDifference = playerFitScore(left, minPlayers, maxPlayers) - playerFitScore(right, minPlayers, maxPlayers);
-
-    if (fitDifference !== 0) {
-      return fitDifference;
-    }
-  }
-
-  return compareNames(left, right);
-}
-
-function playerFitScore(game: Game, minPlayers: number | null, maxPlayers: number | null): number {
-  let score = 0;
-
-  if (minPlayers && game.maxPlayers !== null) {
-    score += Math.max(0, minPlayers - game.maxPlayers) * 100;
-    score += Math.abs((game.minPlayers ?? minPlayers) - minPlayers);
-  }
-
-  if (maxPlayers && game.minPlayers !== null) {
-    score += Math.max(0, game.minPlayers - maxPlayers) * 100;
-    score += Math.abs((game.maxPlayers ?? maxPlayers) - maxPlayers);
-  }
-
-  if (game.minPlayers === null || game.maxPlayers === null) {
-    score += 8;
-  }
-
-  return score;
-}
-
-function compareNames(left: Game, right: Game): number {
-  return left.name.localeCompare(right.name, "es-ES");
-}
-
-function compareNullableNumbers(left: number | null, right: number | null): number {
-  if (left === null && right === null) {
-    return 0;
-  }
-
-  if (left === null) {
-    return 1;
-  }
-
-  if (right === null) {
-    return -1;
-  }
-
-  return left - right;
-}
-
-function parsePositiveInt(value: string): number | null {
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function normalize(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLocaleLowerCase("es-ES")
-    .trim();
 }

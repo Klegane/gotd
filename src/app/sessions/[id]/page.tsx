@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 
-import { AuthButton } from "@/components/AuthButton";
 import { SessionDetailView } from "@/components/SessionDetailView";
 import { getCurrentSession, isSessionAuthenticated } from "@/server/auth";
 
@@ -20,13 +19,13 @@ export default async function SessionDetailPage({ params }: Props) {
 
   return (
     <main id={`session-detail-page-${id}`} className="page-shell">
-      <header id="session-page-header" className="top-bar">
-        <div id="session-page-title-block">
-          <p className="eyebrow">Mesa del Dia</p>
-          <h1>Detalle de sesión</h1>
+      <section className="page-intro" aria-labelledby="session-page-title">
+        <div>
+          <p className="eyebrow">Sesión</p>
+          <h1 id="session-page-title">Detalle de sesión</h1>
         </div>
-        <AuthButton idPrefix="session-page-auth" userName={session.user.name ?? session.user.email ?? "Jugador"} />
-      </header>
+        <p className="page-intro-copy">Votos, propuestas, participantes, mensajes y cierre de la sesión.</p>
+      </section>
       <SessionDetailView
         sessionId={id}
         userId={session.user.id}

@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 import { AuthButton } from "@/components/AuthButton";
 import { VotingDashboard } from "@/components/VotingDashboard";
 import { getCurrentSession, isSessionAuthenticated } from "@/server/auth";
@@ -51,19 +49,14 @@ export default async function HomePage() {
   }
 
   return (
-    <main id="home-page" className="page-shell">
-      <header id="home-header" className="top-bar">
-        <div id="home-title-block">
-          <p className="eyebrow">Mesa del Dia</p>
-          <h1>Choose the next board game.</h1>
+    <main id="home-page" className="page-shell dashboard-shell">
+      <section className="page-intro" aria-labelledby="home-title">
+        <div>
+          <p className="eyebrow">Panel principal</p>
+          <h1 id="home-title">Elige el próximo juego.</h1>
         </div>
-        <div id="home-actions" className="top-actions">
-          <Link id="home-games-link" href="/games" className="button secondary">
-            Juegos
-          </Link>
-          <AuthButton idPrefix="home-auth" userName={session.user.name ?? session.user.email ?? "Player"} />
-        </div>
-      </header>
+        <p className="page-intro-copy">Calendario, votos, propuestas y resultados en un único espacio de trabajo.</p>
+      </section>
       <VotingDashboard userRole={session.user.role === "admin" ? "admin" : "user"} />
     </main>
   );

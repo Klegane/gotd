@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 
-import { AuthButton } from "@/components/AuthButton";
 import { GameDetailView } from "@/components/GameDetailView";
 import { getCurrentSession, isSessionAuthenticated } from "@/server/auth";
 
@@ -20,13 +19,13 @@ export default async function GameDetailPage({ params }: Props) {
 
   return (
     <main id={`game-detail-page-${id}`} className="page-shell">
-      <header id="game-detail-header" className="top-bar">
-        <div id="game-detail-title-block">
-          <p className="eyebrow">Mesa del Dia</p>
-          <h1>Detalle de juego</h1>
+      <section className="page-intro" aria-labelledby="game-detail-title">
+        <div>
+          <p className="eyebrow">Catálogo</p>
+          <h1 id="game-detail-title">Detalle de juego</h1>
         </div>
-        <AuthButton idPrefix="game-detail-auth" userName={session.user.name ?? session.user.email ?? "Jugador"} />
-      </header>
+        <p className="page-intro-copy">Preferencias, expansiones e historial de partidas del juego.</p>
+      </section>
       <GameDetailView gameId={id} />
     </main>
   );

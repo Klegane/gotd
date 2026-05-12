@@ -2,6 +2,7 @@ import { prisma } from "@/server/db";
 
 export const preferenceStates = ["favorite", "vetoed"] as const;
 export type PreferenceState = (typeof preferenceStates)[number];
+export const MAX_ACTIVE_VETOES = 3;
 
 export class InvalidPreferenceError extends Error {
   constructor(message: string) {
@@ -12,6 +13,12 @@ export class InvalidPreferenceError extends Error {
 
 export type GameWithPreference<TGame> = TGame & {
   preference: PreferenceState | null;
+};
+
+export type VetoCapacity = {
+  used: number;
+  max: number;
+  remaining: number;
 };
 
 export function isPreferenceState(value: unknown): value is PreferenceState {
@@ -29,6 +36,30 @@ export async function setGamePreference(userId: string, gameId: string, preferen
 
   if (!game) {
     throw new InvalidPreferenceError("Selected game is not available in the catalog");
+  }
+
+  if (preference === "vetoed") {
+    const [currentPreference, activeVetoCount] = await Promise.all([
+      prisma.userGamePreference.findUnique({
+        where: {
+          userId_gameId: {
+            userId,
+            gameId
+          }
+        },
+        select: { preference: true }
+      }),
+      prisma.userGamePreference.count({
+        where: {
+          userId,
+          preference: "vetoed"
+        }
+      })
+    ]);
+
+    if (currentPreference?.preference !== "vetoed" && activeVetoCount >= MAX_ACTIVE_VETOES) {
+      throw new InvalidPreferenceError(`You can veto at most ${MAX_ACTIVE_VETOES} games`);
+    }
   }
 
   return prisma.userGamePreference.upsert({
@@ -72,6 +103,21 @@ export async function getUserGamePreferenceMap(userId: string): Promise<Map<stri
       )
       .map((preference) => [preference.gameId, preference.preference])
   );
+}
+
+export async function getVetoCapacity(userId: string): Promise<VetoCapacity> {
+  const used = await prisma.userGamePreference.count({
+    where: {
+      userId,
+      preference: "vetoed"
+    }
+  });
+
+  return {
+    used,
+    max: MAX_ACTIVE_VETOES,
+    remaining: Math.max(0, MAX_ACTIVE_VETOES - used)
+  };
 }
 
 export async function addPreferencesToGames<TGame extends { id: string }>(

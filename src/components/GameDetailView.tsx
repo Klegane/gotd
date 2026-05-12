@@ -17,6 +17,11 @@ type GameData = {
   maxPlayers: number | null;
   playingTime: number | null;
   averageWeight: number | null;
+  categories: string[];
+  mechanisms: string[];
+  families: string[];
+  designers: string[];
+  artists: string[];
   preference: PreferenceState | null;
   isExpansion: boolean;
   parentGame: {
@@ -127,7 +132,7 @@ export function GameDetailView({ gameId }: GameDetailViewProps) {
 
   return (
     <div id={`game-detail-view-${game.id}`} className="game-detail-page">
-      <Link id="game-detail-back-link" href="/" className="back-link">&larr; Volver al calendario</Link>
+      <Link id="game-detail-back-link" href="/games" className="back-link">&larr; Volver al catálogo</Link>
 
       <div id="game-detail-profile" className={`game-detail-header ${game.preference ?? ""}`}>
         <img

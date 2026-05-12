@@ -1,6 +1,7 @@
 "use client";
 
 import { signIn, signOut } from "next-auth/react";
+import React from "react";
 
 type AuthButtonProps = {
   userName?: string;
@@ -18,7 +19,7 @@ export function AuthButton({ userName, idPrefix = "auth" }: AuthButtonProps) {
           className="button secondary"
           onClick={() => signOut()}
         >
-          Sign out
+          Salir
         </button>
       </div>
     );
@@ -31,7 +32,7 @@ export function AuthButton({ userName, idPrefix = "auth" }: AuthButtonProps) {
       className="button primary"
       onClick={() => signIn("google")}
     >
-      Sign in with Google
+      Entrar con Google
     </button>
   );
 }

@@ -10,6 +10,8 @@ datasource db {
 model User {
   id            String    @id @default(cuid())
   name          String?
+  nickname      String?
+  normalizedNickname String? @unique
   email         String?   @unique
   emailVerified DateTime?
   image         String?
@@ -17,8 +19,17 @@ model User {
   accounts      Account[]
   sessions      Session[]
   votes         Vote[]
+  voteBallots   VoteBallot[]
   preferences   UserGamePreference[]
   messages      SessionMessage[]
+  gameProposals SessionGameProposal[]
+  pointBids     PointBid[]
+  pointLedger   PriorityPointLedger[]
+  participations VotingSessionParticipant[] @relation("ParticipantUser")
+  sentInvitations VotingSessionParticipant[] @relation("InvitationSender")
+  vetoSnapshots VotingSessionVetoSnapshot[]
+  notifications UserNotification[] @relation("NotificationRecipient")
+  triggeredNotifications UserNotification[] @relation("NotificationActor")
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 }
@@ -70,6 +81,11 @@ model Game {
   maxPlayers    Int?
   playingTime   Int?
   averageWeight Float?
+  categories    String[] @default([])
+  mechanisms    String[] @default([])
+  families      String[] @default([])
+  designers     String[] @default([])
+  artists       String[] @default([])
   metadataJson  String?
   active        Boolean  @default(true)
   isExpansion   Boolean  @default(false)
@@ -79,8 +95,14 @@ model Game {
   importedAt    DateTime @default(now())
   updatedAt     DateTime @updatedAt
   votes         Vote[]
+  voteAllocations VoteAllocation[]
   sessionOptions VotingSessionGameOption[]
+  sessionProposals SessionGameProposal[]
+  pointBids     PointBid[]
+  priorityPointLedger PriorityPointLedger[]
+  playedInSessions VotingSession[] @relation("VotingSessionPlayedGame")
   preferences   UserGamePreference[]
+  vetoSnapshots VotingSessionVetoSnapshot[]
 
   @@index([active, name])
   @@index([parentGameId])
@@ -120,6 +142,10 @@ model VotingSession {
   title           String?
   notes           String?
   status          String   @default("open")
+  allowPlayerProposals Boolean @default(true)
+  proposalsLockedAt DateTime?
+  playedGameId    String?
+  pointsSettledAt DateTime?
   locationId      String?
   createdByUserId String?
   updatedByUserId String?
@@ -127,13 +153,22 @@ model VotingSession {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   location        Location? @relation(fields: [locationId], references: [id])
+  playedGame      Game? @relation("VotingSessionPlayedGame", fields: [playedGameId], references: [id])
   votes           Vote[]
+  voteBallots     VoteBallot[]
   gameOptions     VotingSessionGameOption[]
+  gameProposals   SessionGameProposal[]
   messages        SessionMessage[]
+  pointBids       PointBid[]
+  pointLedger     PriorityPointLedger[]
+  participants    VotingSessionParticipant[]
+  vetoSnapshots   VotingSessionVetoSnapshot[]
+  notifications   UserNotification[]
 
   @@index([localDate, localStartTime])
   @@index([status])
   @@index([locationId])
+  @@index([playedGameId])
 }
 
 model SessionMessage {
@@ -144,6 +179,7 @@ model SessionMessage {
   createdAt       DateTime      @default(now())
   votingSession   VotingSession @relation(fields: [votingSessionId], references: [id], onDelete: Cascade)
   user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notifications   UserNotification[]
 
   @@index([votingSessionId, createdAt])
   @@index([userId])
@@ -165,11 +201,41 @@ model Vote {
   @@index([userId])
 }
 
+model VoteBallot {
+  id              String        @id @default(cuid())
+  votingSessionId String
+  userId          String
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  votingSession   VotingSession @relation(fields: [votingSessionId], references: [id], onDelete: Cascade)
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  allocations     VoteAllocation[]
+  pointBid        PointBid?
+
+  @@unique([votingSessionId, userId])
+  @@index([userId])
+}
+
+model VoteAllocation {
+  id        String     @id @default(cuid())
+  ballotId  String
+  gameId    String
+  voteCount Int
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  ballot    VoteBallot @relation(fields: [ballotId], references: [id], onDelete: Cascade)
+  game      Game       @relation(fields: [gameId], references: [id])
+
+  @@unique([ballotId, gameId])
+  @@index([gameId])
+}
+
 model VotingSessionGameOption {
   id              String        @id @default(cuid())
   votingSessionId String
   gameId          String
   addedByUserId   String?
+  source          String        @default("creator")
   createdAt       DateTime      @default(now())
   votingSession   VotingSession @relation(fields: [votingSessionId], references: [id], onDelete: Cascade)
   game            Game          @relation(fields: [gameId], references: [id])
@@ -177,6 +243,64 @@ model VotingSessionGameOption {
   @@unique([votingSessionId, gameId])
   @@index([gameId])
   @@index([addedByUserId])
+  @@index([source])
+}
+
+model SessionGameProposal {
+  id              String        @id @default(cuid())
+  votingSessionId String
+  userId          String
+  gameId          String
+  isPriority      Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  votingSession   VotingSession @relation(fields: [votingSessionId], references: [id], onDelete: Cascade)
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  game            Game          @relation(fields: [gameId], references: [id])
+
+  @@unique([votingSessionId, userId, gameId])
+  @@index([votingSessionId, userId, isPriority])
+  @@index([gameId])
+}
+
+model PointBid {
+  id              String        @id @default(cuid())
+  ballotId        String        @unique
+  votingSessionId String
+  userId          String
+  gameId          String
+  points          Int
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  ballot          VoteBallot    @relation(fields: [ballotId], references: [id], onDelete: Cascade)
+  votingSession   VotingSession @relation(fields: [votingSessionId], references: [id], onDelete: Cascade)
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  game            Game          @relation(fields: [gameId], references: [id])
+
+  @@index([votingSessionId])
+  @@index([userId])
+  @@index([gameId])
+}
+
+model PriorityPointLedger {
+  id              String   @id @default(cuid())
+  userId          String
+  votingSessionId String?
+  gameId          String?
+  amount          Int
+  reason          String
+  idempotencyKey  String   @unique
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  votingSession   VotingSession? @relation(fields: [votingSessionId], references: [id], onDelete: Cascade)
+  game            Game?    @relation(fields: [gameId], references: [id])
+  notifications   UserNotification[]
+
+  @@index([userId, createdAt])
+  @@index([votingSessionId])
+  @@index([gameId])
+  @@index([reason])
 }
 
 model UserGamePreference {
@@ -192,4 +316,69 @@ model UserGamePreference {
   @@unique([userId, gameId])
   @@index([gameId])
   @@index([preference])
+}
+
+model VotingSessionParticipant {
+  id                  String        @id @default(cuid())
+  votingSessionId     String
+  userId              String
+  invitedByUserId     String?
+  status              String        @default("invited")
+  invitedAt           DateTime      @default(now())
+  respondedAt         DateTime?
+  attendanceUpdatedAt DateTime?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  votingSession       VotingSession @relation(fields: [votingSessionId], references: [id], onDelete: Cascade)
+  user                User          @relation("ParticipantUser", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy           User?         @relation("InvitationSender", fields: [invitedByUserId], references: [id])
+
+  @@unique([votingSessionId, userId])
+  @@index([userId, status])
+  @@index([votingSessionId, status])
+  @@index([invitedByUserId])
+}
+
+model VotingSessionVetoSnapshot {
+  id              String        @id @default(cuid())
+  votingSessionId String
+  userId          String
+  gameId          String
+  source          String
+  capturedAt      DateTime      @default(now())
+  votingSession   VotingSession @relation(fields: [votingSessionId], references: [id], onDelete: Cascade)
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  game            Game          @relation(fields: [gameId], references: [id])
+
+  @@unique([votingSessionId, userId, gameId])
+  @@index([votingSessionId, gameId])
+  @@index([userId])
+}
+
+model UserNotification {
+  id                String               @id @default(cuid())
+  userId            String
+  type              String
+  title             String
+  body              String?
+  href              String?
+  actorUserId       String?
+  votingSessionId   String?
+  sessionMessageId  String?
+  ledgerEntryId     String?
+  dedupeKey         String?
+  readAt            DateTime?
+  createdAt         DateTime             @default(now())
+  user              User                 @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  actorUser         User?                @relation("NotificationActor", fields: [actorUserId], references: [id])
+  votingSession     VotingSession?       @relation(fields: [votingSessionId], references: [id], onDelete: Cascade)
+  sessionMessage    SessionMessage?      @relation(fields: [sessionMessageId], references: [id], onDelete: Cascade)
+  ledgerEntry       PriorityPointLedger? @relation(fields: [ledgerEntryId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+  @@index([userId, createdAt])
+  @@index([votingSessionId])
+  @@index([sessionMessageId])
+  @@index([ledgerEntryId])
+  @@index([dedupeKey])
 }

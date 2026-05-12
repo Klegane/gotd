@@ -10,6 +10,7 @@ const BGG_ROOT = "https://boardgamegeek.com/xmlapi2";
 const BGG_SITE_ROOT = "https://boardgamegeek.com";
 const DEFAULT_RETRY_DELAY_MS = 5000;
 const DEFAULT_DETAIL_DELAY_MS = 1000;
+const DEFAULT_DETAIL_BATCH_SIZE = 20;
 const DEFAULT_MAX_ATTEMPTS = 5;
 const execFileAsync = promisify(execFile);
 
@@ -23,6 +24,11 @@ export type BggCollectionGame = {
   maxPlayers: number | null;
   playingTime: number | null;
   averageWeight: number | null;
+  categories: string[];
+  mechanisms: string[];
+  families: string[];
+  designers: string[];
+  artists: string[];
   subtype: string | null;
   source: "geekcollection" | "xmlapi2";
   isExpansion?: boolean;
@@ -40,6 +46,11 @@ export type BggThingDetails = {
   maxPlayers: number | null;
   playingTime: number | null;
   averageWeight: number | null;
+  categories: string[];
+  mechanisms: string[];
+  families: string[];
+  designers: string[];
+  artists: string[];
   isExpansion: boolean;
   parentBggIds: number[];
   expansionBggIds: number[];
@@ -65,6 +76,18 @@ type CollectionFetchResult =
   | { kind: "html"; html: string }
   | { kind: "retryable-error"; message: string }
   | { kind: "fatal-error"; message: string };
+
+type MetadataFacet = "categories" | "mechanisms" | "families" | "designers" | "artists";
+
+type GameMetadataFields = Record<MetadataFacet, string[]>;
+
+const metadataLinkTypes: Record<string, MetadataFacet> = {
+  boardgamecategory: "categories",
+  boardgamemechanic: "mechanisms",
+  boardgamefamily: "families",
+  boardgamedesigner: "designers",
+  boardgameartist: "artists"
+};
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -191,6 +214,11 @@ export async function syncBoardGameGeekCatalog(options: BggSyncOptions = {}): Pr
             maxPlayers: game.maxPlayers,
             playingTime: game.playingTime,
             averageWeight: game.averageWeight,
+            categories: game.categories,
+            mechanisms: game.mechanisms,
+            families: game.families,
+            designers: game.designers,
+            artists: game.artists,
             isExpansion: game.isExpansion ?? false,
             metadataJson: JSON.stringify({ subtype: game.subtype, source: game.source }),
             active: true
@@ -205,6 +233,11 @@ export async function syncBoardGameGeekCatalog(options: BggSyncOptions = {}): Pr
             maxPlayers: game.maxPlayers,
             playingTime: game.playingTime,
             averageWeight: game.averageWeight,
+            categories: game.categories,
+            mechanisms: game.mechanisms,
+            families: game.families,
+            designers: game.designers,
+            artists: game.artists,
             isExpansion: game.isExpansion ?? false,
             metadataJson: JSON.stringify({ subtype: game.subtype, source: game.source }),
             active: true
@@ -396,7 +429,7 @@ export async function enrichGamesWithThingDetails(
 
   const delay = options.delay ?? sleep;
   const delayMs = options.delayMs ?? DEFAULT_DETAIL_DELAY_MS;
-  const detailEntries = new Map<number, BggThingDetails>();
+  const detailEntries = await fetchThingDetailEntries(games, options);
 
   for (let index = 0; index < games.length; index += 1) {
     const game = games[index];
@@ -406,7 +439,8 @@ export async function enrichGamesWithThingDetails(
       const detail = parseGamePageDetailsHtml(html);
 
       if (detail) {
-        detailEntries.set(detail.bggId, detail);
+        const existing = detailEntries.get(detail.bggId);
+        detailEntries.set(detail.bggId, existing ? mergeThingDetails(existing, detail) : detail);
       }
     } catch {
       // Keep the base catalog entry if BGG blocks or fails an individual detail page.
@@ -434,11 +468,76 @@ export async function enrichGamesWithThingDetails(
       maxPlayers: detail.maxPlayers ?? game.maxPlayers,
       playingTime: detail.playingTime ?? game.playingTime,
       averageWeight: detail.averageWeight ?? game.averageWeight,
+      categories: preferMetadataValues(detail.categories, game.categories),
+      mechanisms: preferMetadataValues(detail.mechanisms, game.mechanisms),
+      families: preferMetadataValues(detail.families, game.families),
+      designers: preferMetadataValues(detail.designers, game.designers),
+      artists: preferMetadataValues(detail.artists, game.artists),
       isExpansion: detail.isExpansion,
       parentBggIds: detail.parentBggIds,
       expansionBggIds: detail.expansionBggIds
     };
   });
+}
+
+async function fetchThingDetailEntries(
+  games: BggCollectionGame[],
+  options: BggSyncOptions
+): Promise<Map<number, BggThingDetails>> {
+  const delay = options.delay ?? sleep;
+  const delayMs = options.delayMs ?? DEFAULT_DETAIL_DELAY_MS;
+  const detailEntries = new Map<number, BggThingDetails>();
+  const ids = games.map((game) => game.bggId);
+
+  for (let offset = 0; offset < ids.length; offset += DEFAULT_DETAIL_BATCH_SIZE) {
+    const batchIds = ids.slice(offset, offset + DEFAULT_DETAIL_BATCH_SIZE);
+
+    try {
+      const xml = await fetchThingDetailsXml(batchIds, options);
+
+      for (const detail of parseThingDetailsXml(xml)) {
+        detailEntries.set(detail.bggId, detail);
+      }
+    } catch {
+      // Public game pages below are a slower fallback if the XML detail endpoint is unavailable.
+    }
+
+    if (offset + DEFAULT_DETAIL_BATCH_SIZE < ids.length) {
+      await delay(delayMs);
+    }
+  }
+
+  return detailEntries;
+}
+
+function mergeThingDetails(base: BggThingDetails, override: BggThingDetails): BggThingDetails {
+  return {
+    bggId: override.bggId,
+    name: override.name ?? base.name,
+    yearPublished: override.yearPublished ?? base.yearPublished,
+    imageUrl: override.imageUrl ?? base.imageUrl,
+    thumbnailUrl: override.thumbnailUrl ?? base.thumbnailUrl,
+    minPlayers: override.minPlayers ?? base.minPlayers,
+    maxPlayers: override.maxPlayers ?? base.maxPlayers,
+    playingTime: override.playingTime ?? base.playingTime,
+    averageWeight: override.averageWeight ?? base.averageWeight,
+    categories: preferMetadataValues(override.categories, base.categories),
+    mechanisms: preferMetadataValues(override.mechanisms, base.mechanisms),
+    families: preferMetadataValues(override.families, base.families),
+    designers: preferMetadataValues(override.designers, base.designers),
+    artists: preferMetadataValues(override.artists, base.artists),
+    isExpansion: override.isExpansion || base.isExpansion,
+    parentBggIds: preferNumberValues(override.parentBggIds, base.parentBggIds),
+    expansionBggIds: preferNumberValues(override.expansionBggIds, base.expansionBggIds)
+  };
+}
+
+function preferMetadataValues(preferred: string[], fallback: string[]): string[] {
+  return preferred.length > 0 ? preferred : fallback;
+}
+
+function preferNumberValues(preferred: number[], fallback: number[]): number[] {
+  return preferred.length > 0 ? preferred : fallback;
 }
 
 export async function fetchGamePageHtml(url: string, options: BggSyncOptions = {}): Promise<string> {
@@ -766,6 +865,7 @@ export function parseGamePageDetailsHtml(html: string): BggThingDetails | null {
   const isExpansion = subtype === "boardgameexpansion";
   const parentBggIds: number[] = [];
   const expansionBggIds: number[] = [];
+  const metadata = extractMetadataLinks(item);
 
   for (const linked of linkedItems) {
     if (!isRecord(linked)) continue;
@@ -789,6 +889,7 @@ export function parseGamePageDetailsHtml(html: string): BggThingDetails | null {
     maxPlayers: toNumber(item.maxplayers),
     playingTime: toNumber(item.maxplaytime) ?? toNumber(item.minplaytime),
     averageWeight: toFloat(weightPoll.averageweight) ?? toFloat(stats.avgweight),
+    ...metadata,
     isExpansion,
     parentBggIds,
     expansionBggIds
@@ -821,6 +922,7 @@ export function parseGeekCollectionHtml(html: string): BggCollectionGame[] {
       maxPlayers: null,
       playingTime: null,
       averageWeight: null,
+      ...emptyMetadataFields(),
       subtype: "boardgame",
       source: "geekcollection"
     });
@@ -849,6 +951,7 @@ function parseCollectionItem(item: Record<string, unknown>): BggCollectionGame |
     maxPlayers: toNumber(stats.maxplayers),
     playingTime: toNumber(stats.playingtime),
     averageWeight: null,
+    ...emptyMetadataFields(),
     subtype: toText(item.subtype),
     source: "xmlapi2"
   };
@@ -863,6 +966,7 @@ function parseThingDetailsItem(item: Record<string, unknown>): BggThingDetails |
 
   const itemType = toText(item.type);
   const isExpansion = itemType === "boardgameexpansion";
+  const metadata = extractMetadataLinks(item);
 
   return {
     bggId,
@@ -874,6 +978,7 @@ function parseThingDetailsItem(item: Record<string, unknown>): BggThingDetails |
     maxPlayers: toNumber(item.maxplayers),
     playingTime: toNumber(item.playingtime),
     averageWeight: getAverageWeight(item),
+    ...metadata,
     isExpansion,
     parentBggIds: [],
     expansionBggIds: []
@@ -986,6 +1091,83 @@ function getAverageWeight(item: Record<string, unknown>): number | null {
   const statistics = isRecord(item.statistics) ? item.statistics : null;
   const ratings = statistics && isRecord(statistics.ratings) ? statistics.ratings : null;
   return ratings ? toFloat(ratings.averageweight) : null;
+}
+
+function emptyMetadataFields(): GameMetadataFields {
+  return {
+    categories: [],
+    mechanisms: [],
+    families: [],
+    designers: [],
+    artists: []
+  };
+}
+
+function extractMetadataLinks(item: Record<string, unknown>): GameMetadataFields {
+  const metadata = emptyMetadataFields();
+  const seen: Record<MetadataFacet, Set<string>> = {
+    categories: new Set(),
+    mechanisms: new Set(),
+    families: new Set(),
+    designers: new Set(),
+    artists: new Set()
+  };
+
+  function addLabel(facet: MetadataFacet, value: unknown) {
+    const label = toText(value);
+
+    if (!label) {
+      return;
+    }
+
+    const key = label.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("es-ES");
+
+    if (seen[facet].has(key)) {
+      return;
+    }
+
+    seen[facet].add(key);
+    metadata[facet].push(label);
+  }
+
+  function collect(value: unknown, typeHint?: string) {
+    if (Array.isArray(value)) {
+      for (const child of value) {
+        collect(child, typeHint);
+      }
+      return;
+    }
+
+    if (!isRecord(value)) {
+      if (typeHint) {
+        const facet = metadataLinkTypes[typeHint.toLocaleLowerCase("en-US")];
+
+        if (facet) {
+          addLabel(facet, value);
+        }
+      }
+      return;
+    }
+
+    const linkType = typeHint ?? toText(value.type) ?? toText(value.linktype);
+    const facet = linkType ? metadataLinkTypes[linkType.toLocaleLowerCase("en-US")] : undefined;
+
+    if (facet) {
+      addLabel(facet, toText(value.value) ?? toText(value.name) ?? toText(value.title));
+    }
+
+    for (const [key, child] of Object.entries(value)) {
+      if (metadataLinkTypes[key.toLocaleLowerCase("en-US")]) {
+        collect(child, key);
+      }
+    }
+  }
+
+  collect(item.link);
+  collect(item.links);
+  collect(item.linkedItems);
+
+  return metadata;
 }
 
 function browserUserAgent(): string {

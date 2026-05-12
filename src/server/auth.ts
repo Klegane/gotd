@@ -31,6 +31,9 @@ export const authOptions: NextAuthOptions = {
         }
 
         session.user.role = role;
+        if ("nickname" in user && typeof user.nickname === "string" && user.nickname.trim()) {
+          session.user.name = user.nickname;
+        }
       }
 
       return session;

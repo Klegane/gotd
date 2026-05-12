@@ -1,19 +1,31 @@
 import { prisma } from "@/server/db";
+import { notifyActiveParticipants } from "@/server/participants";
+import { displayNameForUser } from "@/server/users";
 
 export async function getSessionMessages(votingSessionId: string) {
-  return prisma.sessionMessage.findMany({
+  const messages = await prisma.sessionMessage.findMany({
     where: { votingSessionId },
     orderBy: { createdAt: "asc" },
     include: {
       user: {
         select: {
           id: true,
+          nickname: true,
           name: true,
+          email: true,
           image: true
         }
       }
     }
   });
+
+  return messages.map((message) => ({
+    ...message,
+    user: {
+      ...message.user,
+      name: displayNameForUser(message.user)
+    }
+  }));
 }
 
 export async function createSessionMessage(userId: string, votingSessionId: string, content: string) {
@@ -32,7 +44,7 @@ export async function createSessionMessage(userId: string, votingSessionId: stri
     throw new InvalidMessageError("Voting session does not exist");
   }
 
-  return prisma.sessionMessage.create({
+  const message = await prisma.sessionMessage.create({
     data: {
       votingSessionId,
       userId,
@@ -42,12 +54,32 @@ export async function createSessionMessage(userId: string, votingSessionId: stri
       user: {
         select: {
           id: true,
+          nickname: true,
           name: true,
+          email: true,
           image: true
         }
       }
     }
   });
+
+  await notifyActiveParticipants(votingSessionId, {
+    actorUserId: userId,
+    type: "session_message",
+    title: "Nuevo mensaje de sesion",
+    body: message.content,
+    href: `/sessions/${votingSessionId}`,
+    sessionMessageId: message.id,
+    dedupeKeyPrefix: "session-message"
+  });
+
+  return {
+    ...message,
+    user: {
+      ...message.user,
+      name: displayNameForUser(message.user)
+    }
+  };
 }
 
 export class InvalidMessageError extends Error {

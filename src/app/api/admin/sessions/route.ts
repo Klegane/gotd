@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getRequiredUser } from "@/server/auth";
 import { forbidden, badRequest, unauthorized } from "@/server/http";
-import { createVotingSession, InvalidSessionError, type SessionMutationInput } from "@/server/voting";
+import { createVotingSession, InvalidCurationError, InvalidSessionError, type SessionMutationInput } from "@/server/voting";
 
 export const dynamic = "force-dynamic";
 
@@ -24,10 +24,10 @@ export async function POST(request: Request) {
   }
 
   try {
-    const session = await createVotingSession(user.id, body);
+    const session = await createVotingSession(user.id, body, true);
     return NextResponse.json({ session });
   } catch (error) {
-    if (error instanceof InvalidSessionError) {
+    if (error instanceof InvalidSessionError || error instanceof InvalidCurationError) {
       return badRequest(error.message);
     }
 

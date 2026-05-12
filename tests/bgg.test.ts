@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -5,12 +7,15 @@ import {
   buildGamePageUrl,
   buildGeekCollectionUrl,
   buildThingDetailsUrl,
+  enrichGamesWithThingDetails,
   fetchCollectionXml,
   parseCollectionXml,
   parseGamePageDetailsHtml,
   parseGeekCollectionHtml,
   parseThingDetailsXml
 } from "@/server/bgg";
+
+const realGamePageHtml = readFileSync("data/bgg-game-173346.html", "utf8");
 
 const collectionXml = `<?xml version="1.0" encoding="utf-8"?>
 <items totalitems="2">
@@ -56,6 +61,12 @@ const thingDetailsXml = `<?xml version="1.0" encoding="utf-8"?>
     <minplayers value="2" />
     <maxplayers value="2" />
     <playingtime value="30" />
+    <link type="boardgamecategory" id="1022" value="Adventure" />
+    <link type="boardgamecategory" id="1022" value="Adventure" />
+    <link type="boardgamemechanic" id="2664" value="Deck, Bag, and Pool Building" />
+    <link type="boardgamefamily" id="5497" value="Players: Two Player Only Games" />
+    <link type="boardgamedesigner" id="37769" value="Antoine Bauza" />
+    <link type="boardgameartist" id="13027" value="Miguel Coimbra" />
     <statistics>
       <ratings>
         <averageweight value="2.22" />
@@ -66,7 +77,7 @@ const thingDetailsXml = `<?xml version="1.0" encoding="utf-8"?>
 
 const gamePageHtml = `
 <script>
-GEEK.geekitemPreload = {"item":{"objectid":173346,"id":"173346","name":"7 Wonders Duel","yearpublished":"2015","minplayers":"2","maxplayers":"2","minplaytime":"30","maxplaytime":"30","polls":{"boardgameweight":{"averageweight":2.2274728500146757,"votes":"3407"}},"stats":{"avgweight":"2.2275"},"images":{"thumb":"https://example.com/thumb.jpg","original":"https://example.com/original.jpg"},"imageurl":"https://example.com/itemrep.jpg"}};
+    GEEK.geekitemPreload = {"item":{"objectid":173346,"id":"173346","name":"7 Wonders Duel","yearpublished":"2015","minplayers":"2","maxplayers":"2","minplaytime":"30","maxplaytime":"30","polls":{"boardgameweight":{"averageweight":2.2274728500146757,"votes":"3407"}},"stats":{"avgweight":"2.2275"},"images":{"thumb":"https://example.com/thumb.jpg","original":"https://example.com/original.jpg"},"imageurl":"https://example.com/itemrep.jpg","links":{"boardgamecategory":[{"name":"Card Game"},{"name":"Card Game"}],"boardgamemechanic":[{"name":"Drafting"}],"boardgamefamily":[{"name":"Ancient: Egypt"}],"boardgamedesigner":[{"name":"Antoine Bauza"}],"boardgameartist":[{"name":"Miguel Coimbra"}]}}};
 GEEK.geekitemSettings = {};
 </script>`;
 
@@ -130,6 +141,7 @@ describe("BoardGameGeek catalog client", () => {
         maxPlayers: null,
         playingTime: null,
         averageWeight: null,
+        ...emptyMetadata(),
         subtype: "boardgame",
         source: "geekcollection"
       },
@@ -143,6 +155,7 @@ describe("BoardGameGeek catalog client", () => {
         maxPlayers: null,
         playingTime: null,
         averageWeight: null,
+        ...emptyMetadata(),
         subtype: "boardgame",
         source: "geekcollection"
       },
@@ -156,6 +169,7 @@ describe("BoardGameGeek catalog client", () => {
         maxPlayers: null,
         playingTime: null,
         averageWeight: null,
+        ...emptyMetadata(),
         subtype: "boardgame",
         source: "geekcollection"
       }
@@ -176,6 +190,11 @@ describe("BoardGameGeek catalog client", () => {
         maxPlayers: 2,
         playingTime: 30,
         averageWeight: 2.22,
+        categories: ["Adventure"],
+        mechanisms: ["Deck, Bag, and Pool Building"],
+        families: ["Players: Two Player Only Games"],
+        designers: ["Antoine Bauza"],
+        artists: ["Miguel Coimbra"],
         isExpansion: false,
         parentBggIds: [],
         expansionBggIds: []
@@ -194,9 +213,74 @@ describe("BoardGameGeek catalog client", () => {
       maxPlayers: 2,
       playingTime: 30,
       averageWeight: 2.2274728500146757,
+      categories: ["Card Game"],
+      mechanisms: ["Drafting"],
+      families: ["Ancient: Egypt"],
+      designers: ["Antoine Bauza"],
+      artists: ["Miguel Coimbra"],
       isExpansion: false,
       parentBggIds: [],
       expansionBggIds: []
+    });
+  });
+
+  it("parses metadata links from a real BoardGameGeek game page fixture", () => {
+    const details = parseGamePageDetailsHtml(realGamePageHtml);
+
+    expect(details).toMatchObject({
+      bggId: 173346,
+      categories: ["Ancient", "Card Game", "City Building", "Civilization", "Economic"],
+      mechanisms: [
+        "End Game Bonuses",
+        "Income",
+        "Melding and Splaying",
+        "Modular Board",
+        "Multi-Use Cards",
+        "Once-Per-Game Abilities"
+      ],
+      families: [
+        "Ancient: Babylon",
+        "Ancient: Egypt",
+        "Ancient: Greece",
+        "Ancient: Rome",
+        "Constructions: Pyramids",
+        "Digital Implementations: Board Game Arena"
+      ],
+      designers: ["Antoine Bauza", "Bruno Cathala"],
+      artists: ["Miguel Coimbra"]
+    });
+  });
+
+  it("enriches games with XML thing details when public game pages are unavailable", async () => {
+    const baseGame = parseGeekCollectionHtml(geekCollectionHtml)[0]!;
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes("/xmlapi2/thing")) {
+        return new Response(thingDetailsXml, { status: 200 });
+      }
+
+      return new Response("", { status: 403 });
+    });
+
+    const games = await enrichGamesWithThingDetails([baseGame], {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      delay: vi.fn().mockResolvedValue(undefined),
+      delayMs: 1,
+      maxAttempts: 1
+    });
+
+    expect(games[0]).toMatchObject({
+      bggId: 173346,
+      imageUrl: "https://example.com/7duel.jpg",
+      thumbnailUrl: "https://example.com/7duel-thumb.jpg",
+      minPlayers: 2,
+      maxPlayers: 2,
+      playingTime: 30,
+      averageWeight: 2.22,
+      categories: ["Adventure"],
+      mechanisms: ["Deck, Bag, and Pool Building"],
+      families: ["Players: Two Player Only Games"],
+      designers: ["Antoine Bauza"],
+      artists: ["Miguel Coimbra"]
     });
   });
 
@@ -234,3 +318,13 @@ describe("BoardGameGeek catalog client", () => {
     expect(delay).toHaveBeenCalledTimes(1);
   });
 });
+
+function emptyMetadata() {
+  return {
+    categories: [],
+    mechanisms: [],
+    families: [],
+    designers: [],
+    artists: []
+  };
+}

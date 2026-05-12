@@ -2,7 +2,14 @@ import { NextResponse } from "next/server";
 
 import { getRequiredUser } from "@/server/auth";
 import { badRequest, unauthorized } from "@/server/http";
-import { getCalendarSessions, getLocalDateForTimeZone, createVotingSession, InvalidSessionError, type SessionMutationInput } from "@/server/voting";
+import {
+  getCalendarSessions,
+  getLocalDateForTimeZone,
+  createVotingSession,
+  InvalidCurationError,
+  InvalidSessionError,
+  type SessionMutationInput
+} from "@/server/voting";
 import { getServerEnv } from "@/server/env";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +31,7 @@ export async function GET(request: Request) {
     const result = await getCalendarSessions(user.id, from, to, user.role === "admin");
     return NextResponse.json(result);
   } catch (error) {
-    if (error instanceof InvalidSessionError) {
+    if (error instanceof InvalidSessionError || error instanceof InvalidCurationError) {
       return badRequest(error.message);
     }
 
@@ -46,7 +53,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const session = await createVotingSession(user.id, body);
+    const session = await createVotingSession(user.id, body, user.role === "admin");
     return NextResponse.json({ session });
   } catch (error) {
     if (error instanceof InvalidSessionError) {

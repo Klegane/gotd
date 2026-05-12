@@ -66,9 +66,36 @@ Admins see extra calendar controls:
 - Create planned sessions with date, start time, optional end time, title, notes, and status.
 - Edit or cancel existing sessions.
 - Close a session to prevent further voting.
+- Choose whether player proposals are open or closed.
 - Restrict a session to a smaller set of active catalog games. If no games are selected, every active catalog game is eligible.
+- Record the played game so priority points and bids are settled.
 
-Every user can mark games as favorite or vetoed. These preferences are personal labels in the voting UI; they do not remove games from other users' ballots.
+Every user can mark games as favorite or vetoed. Favorites are personal labels. Vetoes are limited to three active games per user and do not remove games from other users' ballots, but frozen session vetoes apply a score penalty and tie protection in results.
+
+Users can open the profile page to set a nickname, review favorites and vetoes, see point balance and point history, and browse upcoming invited sessions and past played sessions. Session creators and admins can invite registered users and mark attendance. The home page notification button shows unread invitations, session updates, chat messages, settlement results, and point changes.
+
+## Proposals, Multi-Vote Ballots, and Priority Points
+
+When proposals are open, any authenticated player can propose active catalog games for that session. A player can also mark one of their own proposals as the priority proposal for that session.
+
+When proposals are closed, only creator/admin options are available. If the session has fewer than three creator/admin options, closing proposals costs 2 priority points per missing option. The UI shows this cost before saving.
+
+Ballot limits depend on the number of available games:
+
+- Three or fewer games: each player has one vote.
+- More than three games: each player can allocate up to one fewer vote than the number of available games.
+- Repeated votes on the same game are allowed in larger sessions.
+- A ballot can never include every available game.
+
+Priority point scoring is added on top of normal votes. Players can bid available points only on their own priority proposal. The result score is normal votes plus bid points.
+
+Settlement happens when a creator or admin records the game that was actually played. A priority proposal earns points only when that proposed game was not played. If the bid's game was played, all bid points are spent. If the bid's game was not played, half of the bid, rounded up, is lost.
+
+## Correcting Settlement Mistakes
+
+Settlement is designed to be idempotent: recording a played game after points have already been settled only updates the played-game field and does not create more ledger rows.
+
+If the wrong game was settled and points must be corrected, make a database backup first. Then insert manual adjustment rows in `PriorityPointLedger` with a unique `idempotencyKey`, a clear `reason` such as `admin_adjustment`, the affected `userId`, optional `votingSessionId` and `gameId`, and a positive or negative `amount`. Do not edit historical settlement rows in place; append adjustments so the audit trail remains readable.
 
 ## Google Maps Address Autocomplete
 

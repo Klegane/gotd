@@ -45,18 +45,26 @@ async function getGameSessionHistory(gameId: string) {
   const sessions = await prisma.votingSession.findMany({
     where: {
       status: "closed",
-      votes: {
-        some: { gameId }
+      voteBallots: {
+        some: {
+          allocations: {
+            some: { gameId }
+          }
+        }
       }
     },
     orderBy: [{ localDate: "desc" }, { localStartTime: "desc" }],
     include: {
-      votes: {
+      voteBallots: {
         include: {
-          game: {
-            select: {
-              name: true,
-              thumbnailUrl: true
+          allocations: {
+            include: {
+              game: {
+                select: {
+                  name: true,
+                  thumbnailUrl: true
+                }
+              }
             }
           }
         }
@@ -71,11 +79,14 @@ async function getGameSessionHistory(gameId: string) {
 
   return sessions.map((session) => {
     const results = summarizeVoteRows(
-      session.votes.map((vote) => ({
-        gameId: vote.gameId,
-        gameName: vote.game.name,
-        thumbnailUrl: vote.game.thumbnailUrl
-      }))
+      session.voteBallots.flatMap((ballot) =>
+        ballot.allocations.map((allocation) => ({
+          gameId: allocation.gameId,
+          gameName: allocation.game.name,
+          thumbnailUrl: allocation.game.thumbnailUrl,
+          voteCount: allocation.voteCount
+        }))
+      )
     );
 
     const wasWinner = results.leaders.some((leader) => leader.gameId === gameId);
