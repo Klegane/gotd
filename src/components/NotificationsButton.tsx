@@ -41,12 +41,20 @@ export function NotificationsButton() {
   }
 
   useEffect(() => {
-    void loadNotifications();
-    const interval = window.setInterval(() => {
-      void loadNotifications();
-    }, 30000);
+    function tick() {
+      if (document.visibilityState === "visible") {
+        void loadNotifications();
+      }
+    }
 
-    return () => window.clearInterval(interval);
+    tick();
+    const interval = window.setInterval(tick, 60000);
+    document.addEventListener("visibilitychange", tick);
+
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", tick);
+    };
   }, []);
 
   return (

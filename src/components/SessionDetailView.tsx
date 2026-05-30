@@ -260,13 +260,21 @@ export function SessionDetailView({ sessionId, userId, userRole }: SessionDetail
     void loadUsers();
   }, [loadSession, loadMessages, loadCatalog, loadLocations, loadUsers]);
 
-  // Poll messages every 15 seconds
+  // Poll messages every 30 seconds, only while the tab is visible
   useEffect(() => {
-    const interval = setInterval(() => {
-      void loadMessages();
-    }, 15000);
+    function tick() {
+      if (document.visibilityState === "visible") {
+        void loadMessages();
+      }
+    }
 
-    return () => clearInterval(interval);
+    const interval = setInterval(tick, 30000);
+    document.addEventListener("visibilitychange", tick);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", tick);
+    };
   }, [loadMessages]);
 
   // Scroll to bottom when new messages arrive
