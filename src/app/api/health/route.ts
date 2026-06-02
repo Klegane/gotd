@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 
-import { checkDatabase } from "@/server/db";
 import { getConfigStatus } from "@/server/env";
 
 export const dynamic = "force-dynamic";
 
+// Liveness probe: is the app process up and configured? This intentionally
+// does NOT touch the database, so polling it (e.g. the Docker healthcheck)
+// never wakes a suspended/serverless database. Use /api/ready for a check
+// that verifies database connectivity.
 export async function GET() {
   const config = getConfigStatus();
 
@@ -13,18 +16,6 @@ export async function GET() {
       {
         status: "unhealthy",
         configuration: config.issues
-      },
-      { status: 503 }
-    );
-  }
-
-  try {
-    await checkDatabase();
-  } catch (error) {
-    return NextResponse.json(
-      {
-        status: "unhealthy",
-        database: error instanceof Error ? error.message : "Database check failed"
       },
       { status: 503 }
     );
