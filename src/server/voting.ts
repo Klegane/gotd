@@ -231,6 +231,12 @@ export function isValidLocalTime(value: string): boolean {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
 }
 
+export function shiftLocalDate(localDate: string, days: number): string {
+  const date = new Date(`${localDate}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 export function getDefaultSessionTitle(session: { title: string | null; localDate: string; defaultDailyKey?: string | null }): string {
   return session.title?.trim() || formatSessionTitleDateSpanish(session.localDate);
 }

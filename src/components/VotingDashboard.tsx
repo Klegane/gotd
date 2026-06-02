@@ -365,6 +365,20 @@ export function VotingDashboard({ userRole }: VotingDashboardProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    function refreshCreatedSession(event: Event) {
+      const sessionId = event instanceof CustomEvent && typeof event.detail?.sessionId === "string" ? event.detail.sessionId : null;
+      void loadCalendar(sessionId);
+    }
+
+    window.addEventListener("mesa:session-created", refreshCreatedSession);
+
+    return () => {
+      window.removeEventListener("mesa:session-created", refreshCreatedSession);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const leaderText = useMemo(() => {
     if (!detail || detail.results.totalVotes === 0) {
       return "Sin votos aún";

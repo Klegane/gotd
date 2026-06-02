@@ -1,6 +1,7 @@
 import React, { type ReactNode } from "react";
 
 import { AppHeader } from "@/components/AppHeader";
+import { ChatbotWidget } from "@/components/ChatbotWidget";
 import { getCurrentSession, isSessionAuthenticated } from "@/server/auth";
 import { ConfigurationError } from "@/server/env";
 
@@ -29,6 +30,7 @@ export async function AppShell({ children }: AppShellProps) {
     <div className="app-shell">
       <AppHeader userName={userName} userRole={session.user.role === "admin" ? "admin" : "user"} />
       <div className="app-content">{children}</div>
+      <ChatbotWidget userName={userName} />
     </div>
   );
 }

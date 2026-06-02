@@ -6,6 +6,7 @@ import {
   getCalendarSessions,
   getLocalDateForTimeZone,
   createVotingSession,
+  shiftLocalDate,
   InvalidCurationError,
   InvalidSessionError,
   type SessionMutationInput
@@ -62,10 +63,4 @@ export async function POST(request: Request) {
 
     throw error;
   }
-}
-
-function shiftLocalDate(localDate: string, days: number): string {
-  const date = new Date(`${localDate}T00:00:00.000Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
 }
