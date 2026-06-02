@@ -14,6 +14,8 @@ import { isValidLocalDate, isValidLocalTime } from "@/server/chatbot-dates";
 
 export type CatalogContext = {
   today: string;
+  /** When set, actions whose target only exists elsewhere are filtered out. */
+  currentPath?: string;
 };
 
 export const ACTION_KEYS = [
@@ -113,7 +115,17 @@ const CATALOG: Record<ActionKey, CatalogEntry> = {
       "resuelve fechas relativas a partir de la fecha de hoy), params.localStartTime (HH:MM o null) y params.title (o null).",
     availableOn: "*",
     resolve: (params, ctx) => {
-      const localDate = params.localDate && isValidLocalDate(params.localDate) ? params.localDate : ctx.today;
+      // A model-supplied date must be well-formed AND not in the past. We never
+      // silently fabricate a date: if it's bad, drop the action so the assistant
+      // falls back to offering the create-session form instead of creating a
+      // session on the wrong (or past) day. Absent date means "today".
+      let localDate = ctx.today;
+      if (params.localDate !== undefined) {
+        if (!isValidLocalDate(params.localDate) || params.localDate < ctx.today) {
+          return null;
+        }
+        localDate = params.localDate;
+      }
       const localStartTime =
         params.localStartTime && isValidLocalTime(params.localStartTime) ? params.localStartTime : null;
       const payload: ChatbotSessionPayload = {
@@ -161,10 +173,19 @@ const CATALOG: Record<ActionKey, CatalogEntry> = {
   }
 };
 
+/** True when the action's target exists on the given page ("*" = anywhere). */
+function isAvailableOn(entry: CatalogEntry, currentPath: string | undefined): boolean {
+  if (!currentPath || entry.availableOn === "*") return true;
+  return entry.availableOn === currentPath;
+}
+
 /** Resolve a validated proposed action into a trusted ChatbotAction (or null if unusable). */
 export function resolveAction(proposed: ProposedAction, ctx: CatalogContext): ChatbotAction | null {
   const entry = CATALOG[proposed.actionKey];
   if (!entry) return null;
+  // Enforce page-availability server-side instead of trusting the model: a
+  // click-element action whose button isn't on the current page is dropped.
+  if (!isAvailableOn(entry, ctx.currentPath)) return null;
   return entry.resolve(proposed.params ?? {}, ctx);
 }
 
@@ -178,9 +199,14 @@ export function resolveActions(proposed: ProposedAction[], ctx: CatalogContext):
   return resolved;
 }
 
-/** Catalog description injected into the system prompt. */
-export function describeCatalogForPrompt(): string {
+/**
+ * Catalog description injected into the system prompt. When currentPath is
+ * given, only actions available on that page are listed (the rest are dropped
+ * server-side anyway), so the model isn't tempted to propose off-page buttons.
+ */
+export function describeCatalogForPrompt(currentPath?: string): string {
   return (Object.keys(CATALOG) as ActionKey[])
+    .filter((key) => isAvailableOn(CATALOG[key], currentPath))
     .map((key) => {
       const entry = CATALOG[key];
       const scope = entry.availableOn === "*" ? "cualquier página" : `disponible en ${entry.availableOn}`;

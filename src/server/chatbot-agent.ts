@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 
-import type { ChatbotMessageInput, ChatbotReply } from "@/types/chatbot";
+import { CHATBOT_HISTORY_LIMIT, type ChatbotMessageInput, type ChatbotReply } from "@/types/chatbot";
 import { ACTION_KEYS, describeCatalogForPrompt, proposedActionSchema, resolveActions } from "@/server/chatbot-actions";
 
 export type AgentContext = {
@@ -14,7 +14,17 @@ export type AgentContext = {
 
 const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
 const MAX_TOKENS = 512;
-const MAX_HISTORY = 8;
+
+// Reuse a single SDK client per API key so HTTP keep-alive survives across
+// requests (the route is force-dynamic, so this runs on every POST).
+let cachedClient: { apiKey: string; client: Anthropic } | null = null;
+
+function getClient(apiKey: string): Anthropic {
+  if (!cachedClient || cachedClient.apiKey !== apiKey) {
+    cachedClient = { apiKey, client: new Anthropic({ apiKey }) };
+  }
+  return cachedClient.client;
+}
 
 // The model must answer by calling this single tool, so the output is always
 // structured. `message` is the prose shown to the user; `actions` is a list of
@@ -84,16 +94,22 @@ function buildSystemPrompt(ctx: AgentContext): string {
     "",
     "Fecha de hoy: " + ctx.today + ". Usuario: " + ctx.userName + ".",
     "",
-    "Catálogo de acciones disponibles:",
-    describeCatalogForPrompt()
+    "Catálogo de acciones disponibles en la página actual:",
+    describeCatalogForPrompt(ctx.currentPath)
   ].join("\n");
 }
 
 function toAnthropicMessages(messages: ChatbotMessageInput[]): Anthropic.MessageParam[] {
-  return messages.slice(-MAX_HISTORY).map((message) => ({
-    role: message.role === "assistant" ? "assistant" : "user",
+  const mapped = messages.slice(-CHATBOT_HISTORY_LIMIT).map((message) => ({
+    role: message.role === "assistant" ? ("assistant" as const) : ("user" as const),
     content: message.text
   }));
+
+  // The Anthropic API requires the first message to use the "user" role, but
+  // the widget seeds the thread with an assistant welcome message. Drop any
+  // leading assistant turns so the request is always valid.
+  const firstUser = mapped.findIndex((message) => message.role === "user");
+  return firstUser === -1 ? [] : mapped.slice(firstUser);
 }
 
 /**
@@ -102,7 +118,7 @@ function toAnthropicMessages(messages: ChatbotMessageInput[]): Anthropic.Message
  * rule-based assistant.
  */
 export async function generateChatbotReply(messages: ChatbotMessageInput[], ctx: AgentContext): Promise<ChatbotReply> {
-  const client = new Anthropic({ apiKey: ctx.apiKey });
+  const client = getClient(ctx.apiKey);
 
   const response = await client.messages.create({
     model: ctx.model ?? DEFAULT_MODEL,
@@ -126,7 +142,7 @@ export async function generateChatbotReply(messages: ChatbotMessageInput[], ctx:
   const proposed = parsed.actions
     .map((action) => proposedActionSchema.safeParse(action))
     .flatMap((result) => (result.success ? [result.data] : []));
-  const actions = resolveActions(proposed, { today: ctx.today });
+  const actions = resolveActions(proposed, { today: ctx.today, currentPath: ctx.currentPath });
 
   return { message: parsed.message, actions };
 }

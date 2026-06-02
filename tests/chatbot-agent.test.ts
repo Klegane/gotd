@@ -20,9 +20,9 @@ describe("chatbot action catalog", () => {
     });
   });
 
-  it("normalizes create-session-direct params and falls back to today on invalid dates", () => {
+  it("defaults create-session-direct to today and drops invalid time, trimming title", () => {
     const action = resolveAction(
-      { actionKey: "create-session-direct", params: { localDate: "not-a-date", localStartTime: "99:99", title: " Ada " } },
+      { actionKey: "create-session-direct", params: { localStartTime: "99:99", title: " Ada " } },
       ctx
     );
 
@@ -30,6 +30,23 @@ describe("chatbot action catalog", () => {
       type: "create-session",
       payload: { localDate: "2026-06-02", localStartTime: null, title: "Ada", status: "open" }
     });
+  });
+
+  it("drops create-session-direct for malformed or past dates instead of fabricating one", () => {
+    expect(resolveAction({ actionKey: "create-session-direct", params: { localDate: "not-a-date" } }, ctx)).toBeNull();
+    expect(resolveAction({ actionKey: "create-session-direct", params: { localDate: "2026-05-01" } }, ctx)).toBeNull();
+    expect(
+      resolveAction({ actionKey: "create-session-direct", params: { localDate: "2026-06-10", localStartTime: "19:30" } }, ctx)
+    ).toMatchObject({ payload: { localDate: "2026-06-10", localStartTime: "19:30" } });
+  });
+
+  it("filters page-specific actions by currentPath", () => {
+    expect(resolveAction({ actionKey: "submit-create-session" }, { ...ctx, currentPath: "/games" })).toBeNull();
+    expect(resolveAction({ actionKey: "submit-create-session" }, { ...ctx, currentPath: "/" })).toMatchObject({
+      targetElementId: "create-session-submit-button"
+    });
+    // Navigation is always available regardless of page.
+    expect(resolveAction({ actionKey: "go-games" }, { ...ctx, currentPath: "/profile" })).toMatchObject({ href: "/games" });
   });
 
   it("rejects actionKeys outside the closed catalog", () => {

@@ -1,27 +1,14 @@
 // Shared date/time/text helpers used by both the rule-based fallback
 // (chatbot.ts) and the LLM action catalog (chatbot-actions.ts).
+// Date/time validators and shiftLocalDate live in voting.ts (single source
+// of truth) and are re-exported here for the chatbot modules' convenience.
+
+import { isValidLocalDate, isValidLocalTime, shiftLocalDate } from "@/server/voting";
+
+export { isValidLocalDate, isValidLocalTime, shiftLocalDate };
 
 export function normalizeText(value: string): string {
   return value.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
-}
-
-export function isValidLocalDate(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return false;
-  }
-
-  const date = new Date(`${value}T00:00:00.000Z`);
-  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
-}
-
-export function isValidLocalTime(value: string): boolean {
-  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
-}
-
-export function shiftLocalDate(localDate: string, days: number): string {
-  const date = new Date(`${localDate}T00:00:00.000Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
 }
 
 export function normalizeYear(value: string): number {

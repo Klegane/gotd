@@ -6,11 +6,10 @@ import { createChatbotReply } from "@/server/chatbot";
 import { getServerEnv } from "@/server/env";
 import { badRequest, unauthorized } from "@/server/http";
 import { getLocalDateForTimeZone } from "@/server/voting";
-import type { ChatbotMessageInput, ChatbotRequest } from "@/types/chatbot";
+import { CHATBOT_HISTORY_LIMIT, type ChatbotMessageInput, type ChatbotRequest } from "@/types/chatbot";
 
 export const dynamic = "force-dynamic";
 
-const MAX_HISTORY = 12;
 const MAX_MESSAGE_LENGTH = 2000;
 const KNOWN_PATHS = ["/", "/games", "/profile"];
 
@@ -30,7 +29,6 @@ export async function POST(request: Request) {
 
   const env = getServerEnv();
   const today = getLocalDateForTimeZone(new Date(), env.APP_TIMEZONE);
-  const latestUserText = [...messages].reverse().find((message) => message.role === "user")?.text ?? "";
 
   if (env.ANTHROPIC_API_KEY) {
     try {
@@ -49,6 +47,7 @@ export async function POST(request: Request) {
     }
   }
 
+  const latestUserText = [...messages].reverse().find((message) => message.role === "user")?.text ?? "";
   return NextResponse.json(createChatbotReply(latestUserText, { today }));
 }
 
@@ -64,7 +63,7 @@ function readMessages(body: ChatbotRequest | null): ChatbotMessageInput[] {
         role: message.role === "assistant" ? "assistant" : "user",
         text: message.text.slice(0, MAX_MESSAGE_LENGTH)
       }))
-      .slice(-MAX_HISTORY);
+      .slice(-CHATBOT_HISTORY_LIMIT);
   }
 
   if (typeof body.message === "string") {

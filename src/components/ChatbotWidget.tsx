@@ -2,7 +2,7 @@
 
 import React, { useMemo, useRef, useState } from "react";
 
-import type { ChatbotAction, ChatbotReply, ChatbotSessionPayload } from "@/types/chatbot";
+import { CHATBOT_HISTORY_LIMIT, type ChatbotAction, type ChatbotReply, type ChatbotSessionPayload } from "@/types/chatbot";
 
 type ChatbotMessage = {
   id: string;
@@ -14,8 +14,6 @@ type ChatbotMessage = {
 type ChatbotWidgetProps = {
   userName: string;
 };
-
-const HISTORY_LIMIT = 8;
 
 const initialMessage: ChatbotMessage = {
   id: "assistant-welcome",
@@ -66,7 +64,7 @@ export function ChatbotWidget({ userName }: ChatbotWidgetProps) {
     // Send a trimmed conversation history so the agent has context, plus the
     // current route so it only proposes buttons that exist on this page.
     const history = [...messages, { role: "user" as const, text }]
-      .slice(-HISTORY_LIMIT)
+      .slice(-CHATBOT_HISTORY_LIMIT)
       .map((message) => ({ role: message.role, text: message.text }));
     const currentPath = typeof window !== "undefined" ? window.location.pathname : "/";
 

@@ -12,7 +12,8 @@ vi.mock("@/server/env", () => ({
   getServerEnv: () => ({ APP_TIMEZONE: "Europe/Madrid" })
 }));
 
-vi.mock("@/server/voting", () => ({
+vi.mock("@/server/voting", async (importActual) => ({
+  ...(await importActual<typeof import("@/server/voting")>()),
   getLocalDateForTimeZone: () => "2026-06-02"
 }));
 

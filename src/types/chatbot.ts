@@ -33,6 +33,9 @@ export type ChatbotMessageInput = {
   text: string;
 };
 
+/** Max conversation turns kept when sending history to the assistant. */
+export const CHATBOT_HISTORY_LIMIT = 8;
+
 export type ChatbotRequest = {
   /** Conversation history (preferred). The last user turn drives the reply. */
   messages?: ChatbotMessageInput[];
