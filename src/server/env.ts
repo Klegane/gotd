@@ -11,7 +11,9 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   APP_TIMEZONE: z.string().refine(isValidTimeZone, "APP_TIMEZONE must be a valid IANA timezone"),
   BGG_INCLUDE_EXPANSIONS: z.boolean(),
-  ADMIN_EMAILS: z.array(z.string().email())
+  ADMIN_EMAILS: z.array(z.string().email()),
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  CHATBOT_MODEL: z.string().min(1).optional()
 });
 
 export type ServerEnv = z.infer<typeof envSchema>;
@@ -63,7 +65,9 @@ function readRawEnv() {
     DATABASE_URL: process.env.DATABASE_URL,
     APP_TIMEZONE: process.env.APP_TIMEZONE ?? "Europe/Madrid",
     BGG_INCLUDE_EXPANSIONS: parseBoolean(process.env.BGG_INCLUDE_EXPANSIONS),
-    ADMIN_EMAILS: parseCsv(process.env.ADMIN_EMAILS)
+    ADMIN_EMAILS: parseCsv(process.env.ADMIN_EMAILS),
+    ANTHROPIC_API_KEY: emptyToUndefined(process.env.ANTHROPIC_API_KEY),
+    CHATBOT_MODEL: emptyToUndefined(process.env.CHATBOT_MODEL)
   };
 }
 
