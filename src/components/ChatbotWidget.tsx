@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { CHATBOT_HISTORY_LIMIT, type ChatbotAction, type ChatbotReply, type ChatbotSessionPayload } from "@/types/chatbot";
 
@@ -14,6 +14,36 @@ type ChatbotMessage = {
 type ChatbotWidgetProps = {
   userName: string;
 };
+
+// Persist the conversation per browser tab so it survives full-page
+// navigations (the chatbot's own navigate/click actions reload the page),
+// while still clearing when the tab is closed.
+const STORAGE_KEY = "mesa:chatbot-state";
+
+type PersistedState = {
+  open: boolean;
+  messages: ChatbotMessage[];
+};
+
+function loadPersistedState(): PersistedState | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.sessionStorage.getItem(STORAGE_KEY);
+
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as Partial<PersistedState>;
+
+    if (!Array.isArray(parsed.messages) || parsed.messages.length === 0) {
+      return null;
+    }
+
+    return { open: Boolean(parsed.open), messages: parsed.messages };
+  } catch {
+    return null;
+  }
+}
 
 const initialMessage: ChatbotMessage = {
   id: "assistant-welcome",
@@ -44,6 +74,28 @@ export function ChatbotWidget({ userName }: ChatbotWidgetProps) {
   const [working, setWorking] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Restore any conversation saved earlier in this tab. Done after mount (not
+  // in the initializer) so server and first client render stay identical.
+  useEffect(() => {
+    const persisted = loadPersistedState();
+
+    if (persisted) {
+      setMessages(persisted.messages);
+      setOpen(persisted.open);
+    }
+  }, []);
+
+  // Mirror the conversation and panel state into session storage on change.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    try {
+      window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ open, messages }));
+    } catch {
+      // Storage may be unavailable (private mode, quota); the chat still works.
+    }
+  }, [open, messages]);
 
   const statusText = useMemo(() => {
     if (actionId) return "Ejecutando accion";

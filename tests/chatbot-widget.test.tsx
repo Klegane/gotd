@@ -10,6 +10,7 @@ describe("ChatbotWidget", () => {
     cleanup();
     vi.restoreAllMocks();
     document.body.innerHTML = "";
+    window.sessionStorage.clear();
   });
 
   it("clicks existing page actions from chatbot buttons", () => {
@@ -94,6 +95,34 @@ describe("ChatbotWidget", () => {
     expect(createdHandler).toHaveBeenCalledWith(expect.objectContaining({ detail: { sessionId: "session_2" } }));
 
     window.removeEventListener("mesa:session-created", createdHandler);
+  });
+
+  it("restores the conversation after a remount (navigation)", async () => {
+    const reply: ChatbotReply = { message: "Te respondo esto.", actions: [] };
+    const fetchMock = vi.fn(async () => jsonResponse(reply));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const first = render(<ChatbotWidget userName="Ada" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Asistente" }));
+    fireEvent.change(screen.getByPlaceholderText("Pregunta o pide una accion"), {
+      target: { value: "hola" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Te respondo esto.")).toBeTruthy();
+    });
+
+    // Simulate a full-page navigation: the widget unmounts and mounts again.
+    first.unmount();
+    render(<ChatbotWidget userName="Ada" />);
+
+    // Panel stays open and the prior turns are still there.
+    await waitFor(() => {
+      expect(screen.getByText("hola")).toBeTruthy();
+    });
+    expect(screen.getByText("Te respondo esto.")).toBeTruthy();
   });
 });
 
