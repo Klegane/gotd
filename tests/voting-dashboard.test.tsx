@@ -1,5 +1,5 @@
 import React from "react";
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { VotingDashboard, type Game } from "@/components/VotingDashboard";
@@ -204,6 +204,68 @@ describe("VotingDashboard multivote controls", () => {
       );
     });
   });
+
+  it("resumes polling a queued catalog refresh after the page loads", async () => {
+    vi.useFakeTimers();
+    const today = new Date().toISOString().slice(0, 10);
+    const detail = makeSessionDetail(today);
+    const sessions = [{ ...detail.session, currentBallot: detail.currentBallot, results: detail.results }];
+    const queuedRun = catalogRun("queued");
+    const completedRun = { ...catalogRun("success"), activeCount: detail.games.length };
+    let catalogLoads = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.startsWith("/api/sessions?")) {
+        return jsonResponse({ sessions });
+      }
+
+      if (url === "/api/sessions/session_1") {
+        return jsonResponse(detail);
+      }
+
+      if (url === "/api/catalog") {
+        catalogLoads += 1;
+        return jsonResponse({
+          games: detail.games,
+          latestSync: catalogLoads === 1 ? queuedRun : completedRun
+        });
+      }
+
+      if (url === "/api/catalog/refresh/run_1") {
+        return jsonResponse({ run: completedRun });
+      }
+
+      if (url === "/api/locations") {
+        return jsonResponse({ locations: [] });
+      }
+
+      if (url === "/api/users") {
+        return jsonResponse({ users: [] });
+      }
+
+      return jsonResponse({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { container } = render(<VotingDashboard userRole="admin" />);
+
+    await vi.waitFor(() => {
+      expect(container.querySelector("#dashboard-status-message")?.textContent).toContain("en cola");
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/catalog/refresh/run_1",
+        expect.objectContaining({ cache: "no-store" })
+      );
+      expect(container.querySelector("#dashboard-status-message")?.textContent).toContain("Catálogo actualizado");
+    });
+  });
 });
 
 function makeSessionDetail(localDate: string) {
@@ -259,7 +321,9 @@ function makeSessionDetail(localDate: string) {
     canProposeGames: true,
     canCurateGames: true,
     canSettlePoints: true,
-    closedProposalControlCost: 0
+    closedProposalControlCost: 0,
+    participants: [],
+    currentParticipant: null
   };
 }
 
@@ -299,4 +363,15 @@ function jsonResponse(body: unknown): Response {
     status: 200,
     json: async () => body
   } as Response;
+}
+
+function catalogRun(status: "queued" | "running" | "success" | "partial" | "failed") {
+  return {
+    id: "run_1",
+    status,
+    activeCount: 0,
+    detailFailureCount: 0,
+    warnings: [],
+    error: null
+  };
 }

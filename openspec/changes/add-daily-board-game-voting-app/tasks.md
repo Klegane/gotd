@@ -7,7 +7,7 @@
 
 ## 2. Local Persistence
 
-- [x] 2.1 Add SQLite ORM configuration using a persisted local database path suitable for Docker volumes.
+- [x] 2.1 Add PostgreSQL ORM configuration using `DATABASE_URL`.
 - [x] 2.2 Create migrations for users, OAuth accounts/sessions, games, catalog sync runs, voting sessions, and votes.
 - [x] 2.3 Add uniqueness constraints for BoardGameGeek game ids, daily voting session dates, and one vote per user per session.
 - [x] 2.4 Add database startup checks and a basic application health endpoint.

@@ -5,7 +5,7 @@
 - [x] 1.3 Remove the one-session-per-date assumption while preserving a default daily session path.
 - [x] 1.4 Add `VotingSessionGameOption` with session/game uniqueness and relational constraints.
 - [x] 1.5 Add `UserGamePreference` with user/game uniqueness and favorite/vetoed state.
-- [x] 1.6 Create and verify Prisma migrations against the existing local SQLite database.
+- [x] 1.6 Create and verify Prisma migrations against the PostgreSQL database.
 
 ## 2. Authorization and Session Services
 

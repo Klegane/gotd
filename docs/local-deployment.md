@@ -29,7 +29,7 @@ GOOGLE_CLIENT_ID=<google-client-id>
 GOOGLE_CLIENT_SECRET=<google-client-secret>
 BGG_USERNAME=<boardgamegeek-username>
 BGG_API_TOKEN=<boardgamegeek-application-token>
-DATABASE_URL=file:/data/app.db
+DATABASE_URL=postgresql://user:password@postgres-host:5432/database?schema=public
 APP_TIMEZONE=Europe/Madrid
 BGG_INCLUDE_EXPANSIONS=false
 ADMIN_EMAILS=admin@example.com
@@ -54,7 +54,7 @@ node -e "console.log(crypto.randomBytes(32).toString('hex'))"
 docker compose up --build
 ```
 
-Open the configured `APP_URL`, sign in with an administrator account, and press `Refresh BGG` to import the configured BoardGameGeek collection. The refresh always checks collection membership. Detailed game metadata is cached for seven days and refreshed through XML API2 in batches, so a normal refresh does not repeatedly download every game. Temporary detail failures are shown as a partial refresh and keep the last cached metadata.
+Open the configured `APP_URL`, sign in with an administrator account, and press `Refresh BGG` to import the configured BoardGameGeek collection. The request is placed in a PostgreSQL-backed queue and the page follows its status; it is safe to reload or close the page. A restarted application reclaims an interrupted job after its lease expires. The refresh always checks collection membership. Detailed game metadata is cached for seven days and refreshed through XML API2 in batches, so a normal refresh does not repeatedly download every game. Temporary detail failures are shown as a partial refresh and keep the last cached metadata.
 
 ## Calendar, Admin Sessions, and Preferences
 
@@ -102,17 +102,15 @@ Address autocomplete uses the Google Maps JavaScript Places library only when `N
 
 ## Backups
 
-The SQLite database lives in the Docker volume mounted at `/data/app.db`. To make a quick backup:
+The application stores its data in the PostgreSQL database configured by `DATABASE_URL`. Use the backup mechanism provided by the database host or PostgreSQL's `pg_dump`, for example:
 
 ```powershell
-docker compose stop app
-docker run --rm -v sdd-project_app-data:/data -v ${PWD}:/backup alpine cp /data/app.db /backup/app.db.backup
-docker compose start app
+pg_dump $env:DATABASE_URL --format=custom --file=app.backup
 ```
 
 ## Restart Persistence
 
-Container recreation keeps voting history as long as the `app-data` volume remains:
+Container recreation keeps voting history because it remains in the configured PostgreSQL database:
 
 ```powershell
 docker compose up --force-recreate app

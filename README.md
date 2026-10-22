@@ -1,6 +1,6 @@
 # Daily Board Game Vote
 
-React web app for choosing the board game of the day with Google login, a local SQLite database, BoardGameGeek catalog import, and Docker-based local hosting.
+React web app for choosing the board game of the day with Google login, PostgreSQL persistence, BoardGameGeek catalog import, and Docker-based hosting.
 
 The app now supports a session calendar: users can vote in today's session or future planned sessions, browse past results, manage a profile, mark personal favorite/vetoed games, use curated game lists for specific sessions, invite players, propose games when a session allows it, and spend priority points when their proposals keep missing the table.
 
@@ -20,6 +20,8 @@ The app expects the variables from `.env.example`. For Docker and Google OAuth s
 Catalog refreshes are performed server-side through the official BoardGameGeek XML API2. Set `BGG_USERNAME` and the application token `BGG_API_TOKEN` in the deployed machine's `.env`; the token is sent only as an `Authorization: Bearer` header and is never exposed to the browser.
 
 Only administrators can start a refresh. The collection membership is checked on every refresh, while `/thing` details are requested in batches of at most 20 and cached locally for seven days. BGG queue, throttling, network, and temporary server responses are retried with backoff. A recoverable detail failure produces a visible partial result and preserves cached metadata. Catalog pages and voting flows read the synchronized database instead of calling BGG directly.
+
+Refreshes are durable jobs stored in PostgreSQL. The start endpoint returns immediately with a job id, the UI polls its status, and reloading or closing the page does not cancel the work. The Next.js worker claims jobs with a database lease and heartbeat; after a process restart, an abandoned run is reclaimed automatically. A database constraint prevents duplicate active refreshes across application instances.
 
 ## Admin Setup
 

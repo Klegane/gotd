@@ -1,3 +1,7 @@
+import { randomUUID } from "node:crypto";
+
+import type { CatalogSyncRun } from "@prisma/client";
+
 import { prisma } from "@/server/db";
 import { getServerEnv } from "@/server/env";
 import {
@@ -21,15 +25,31 @@ export type { BggCollectionGame, BggThingDetails } from "@/server/bgg-api";
 const DEFAULT_DETAIL_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const TRANSACTION_MAX_WAIT_MS = 10_000;
 const TRANSACTION_TIMEOUT_MS = 60_000;
+export const CATALOG_SYNC_LEASE_TIMEOUT_MS = 2 * 60 * 1000;
+const ACTIVE_SYNC_STATUSES = ["queued", "running"] as const;
 
-export type BggSyncResult = {
-  status: "success" | "partial";
+export type CatalogSyncStatus = "queued" | "running" | "success" | "partial" | "failed";
+
+export type CatalogSyncJob = {
+  id: string;
+  sourceUsername: string;
+  status: CatalogSyncStatus;
+  startedAt: Date;
+  claimedAt: Date | null;
+  heartbeatAt: Date | null;
+  completedAt: Date | null;
+  attemptCount: number;
   importedCount: number;
   activeCount: number;
-  runId: string;
   detailsRefreshedCount: number;
   detailFailureCount: number;
   warnings: string[];
+  error: string | null;
+};
+
+export type EnqueuedCatalogSync = {
+  run: CatalogSyncJob;
+  created: boolean;
 };
 
 export type BggSyncOptions = Omit<BggApiClientOptions, "apiToken" | "sleep" | "batchDelayMs" | "retryDelayMs"> & {
@@ -67,39 +87,102 @@ export type CachedBggGame = {
   parentGame: { bggId: number } | null;
 };
 
-let activeCatalogSync: Promise<BggSyncResult> | null = null;
-
-export async function syncBoardGameGeekCatalog(options: BggSyncOptions = {}): Promise<BggSyncResult> {
-  if (activeCatalogSync) {
-    return activeCatalogSync;
-  }
-
-  const sync = performCatalogSync(options);
-  activeCatalogSync = sync;
-
-  try {
-    return await sync;
-  } finally {
-    if (activeCatalogSync === sync) {
-      activeCatalogSync = null;
-    }
-  }
-}
-
-async function performCatalogSync(options: BggSyncOptions): Promise<BggSyncResult> {
+export async function enqueueCatalogSync(requestedByUserId: string): Promise<EnqueuedCatalogSync> {
   const env = getServerEnv();
-  const run = await prisma.catalogSyncRun.create({
-    data: {
-      sourceUsername: env.BGG_USERNAME,
-      status: "pending"
-    }
+  const active = await prisma.catalogSyncRun.findFirst({
+    where: { status: { in: [...ACTIVE_SYNC_STATUSES] } },
+    orderBy: { startedAt: "asc" }
   });
 
+  if (active) {
+    return { run: toCatalogSyncJob(active), created: false };
+  }
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const candidateId = randomUUID();
+    const inserted = await prisma.$queryRaw<Array<{ id: string }>>`
+      INSERT INTO "CatalogSyncRun" (
+        "id", "sourceUsername", "status", "startedAt", "requestedByUserId"
+      )
+      VALUES (
+        ${candidateId}, ${env.BGG_USERNAME}, 'queued', CURRENT_TIMESTAMP, ${requestedByUserId}
+      )
+      ON CONFLICT DO NOTHING
+      RETURNING "id"
+    `;
+
+    if (inserted.length > 0) {
+      const run = await prisma.catalogSyncRun.findUniqueOrThrow({ where: { id: candidateId } });
+      return { run: toCatalogSyncJob(run), created: true };
+    }
+
+    const concurrentRun = await prisma.catalogSyncRun.findFirst({
+      where: { status: { in: [...ACTIVE_SYNC_STATUSES] } },
+      orderBy: { startedAt: "asc" }
+    });
+
+    if (concurrentRun) {
+      return { run: toCatalogSyncJob(concurrentRun), created: false };
+    }
+  }
+
+  throw new Error("Could not enqueue the BoardGameGeek catalog refresh");
+}
+
+export async function claimNextCatalogSyncRun(
+  workerId: string,
+  leaseTimeoutMs = CATALOG_SYNC_LEASE_TIMEOUT_MS,
+  now = new Date()
+): Promise<string | null> {
+  const staleBefore = new Date(now.getTime() - leaseTimeoutMs);
+  const claimed = await prisma.$queryRaw<Array<{ id: string }>>`
+    UPDATE "CatalogSyncRun"
+    SET
+      "status" = 'running',
+      "claimedAt" = CURRENT_TIMESTAMP,
+      "heartbeatAt" = CURRENT_TIMESTAMP,
+      "completedAt" = NULL,
+      "workerId" = ${workerId},
+      "attemptCount" = "attemptCount" + 1,
+      "error" = NULL
+    WHERE "id" = (
+      SELECT "id"
+      FROM "CatalogSyncRun"
+      WHERE
+        "status" = 'queued'
+        OR (
+          "status" = 'running'
+          AND ("heartbeatAt" IS NULL OR "heartbeatAt" < ${staleBefore})
+        )
+      ORDER BY "startedAt" ASC
+      FOR UPDATE SKIP LOCKED
+      LIMIT 1
+    )
+    RETURNING "id"
+  `;
+
+  return claimed[0]?.id ?? null;
+}
+
+export async function heartbeatCatalogSyncRun(runId: string, workerId: string): Promise<boolean> {
+  const result = await prisma.catalogSyncRun.updateMany({
+    where: { id: runId, workerId, status: "running" },
+    data: { heartbeatAt: new Date() }
+  });
+
+  return result.count === 1;
+}
+
+export async function executeCatalogSyncRun(
+  runId: string,
+  workerId: string,
+  options: BggSyncOptions = {}
+): Promise<CatalogSyncJob> {
   try {
     const fetched = await fetchBoardGameGeekCatalog(options);
     const status = fetched.warnings.length > 0 ? "partial" : "success";
 
-    const activeCount = await prisma.$transaction(
+    await prisma.$transaction(
       async (tx) => {
         const importedIds = fetched.games.map((game) => game.bggId);
 
@@ -147,16 +230,25 @@ async function performCatalogSync(options: BggSyncOptions): Promise<BggSyncResul
 
         const count = await tx.game.count({ where: { active: true } });
 
-        await tx.catalogSyncRun.update({
-          where: { id: run.id },
+        const completed = await tx.catalogSyncRun.updateMany({
+          where: { id: runId, workerId, status: "running" },
           data: {
             status,
             completedAt: new Date(),
+            heartbeatAt: new Date(),
+            workerId: null,
             importedCount: fetched.games.length,
             activeCount: count,
+            detailsRefreshedCount: fetched.detailsRefreshedCount,
+            detailFailureCount: fetched.detailFailureCount,
+            warningsJson: JSON.stringify(fetched.warnings),
             error: fetched.warnings.length > 0 ? fetched.warnings.join("; ") : null
           }
         });
+
+        if (completed.count !== 1) {
+          throw new Error("Catalog sync lease was lost before completion");
+        }
 
         return count;
       },
@@ -166,21 +258,16 @@ async function performCatalogSync(options: BggSyncOptions): Promise<BggSyncResul
       }
     );
 
-    return {
-      status,
-      importedCount: fetched.games.length,
-      activeCount,
-      runId: run.id,
-      detailsRefreshedCount: fetched.detailsRefreshedCount,
-      detailFailureCount: fetched.detailFailureCount,
-      warnings: fetched.warnings
-    };
+    const completedRun = await prisma.catalogSyncRun.findUniqueOrThrow({ where: { id: runId } });
+    return toCatalogSyncJob(completedRun);
   } catch (error) {
-    await prisma.catalogSyncRun.update({
-      where: { id: run.id },
+    await prisma.catalogSyncRun.updateMany({
+      where: { id: runId, workerId, status: "running" },
       data: {
         status: "failed",
         completedAt: new Date(),
+        heartbeatAt: new Date(),
+        workerId: null,
         error: error instanceof Error ? error.message : "Unknown BoardGameGeek sync error"
       }
     });
@@ -341,7 +428,31 @@ export async function getCatalogSummary() {
 
   return {
     games,
-    latestSync
+    latestSync: latestSync ? toCatalogSyncJob(latestSync) : null
+  };
+}
+
+export async function getCatalogSyncJob(runId: string): Promise<CatalogSyncJob | null> {
+  const run = await prisma.catalogSyncRun.findUnique({ where: { id: runId } });
+  return run ? toCatalogSyncJob(run) : null;
+}
+
+export function toCatalogSyncJob(run: CatalogSyncRun): CatalogSyncJob {
+  return {
+    id: run.id,
+    sourceUsername: run.sourceUsername,
+    status: normalizeCatalogSyncStatus(run.status),
+    startedAt: run.startedAt,
+    claimedAt: run.claimedAt,
+    heartbeatAt: run.heartbeatAt,
+    completedAt: run.completedAt,
+    attemptCount: run.attemptCount,
+    importedCount: run.importedCount,
+    activeCount: run.activeCount,
+    detailsRefreshedCount: run.detailsRefreshedCount,
+    detailFailureCount: run.detailFailureCount,
+    warnings: parseWarnings(run.warningsJson),
+    error: run.error
   };
 }
 
@@ -388,6 +499,27 @@ function parseMetadataCache(value: string | null): { subtype: string | null; det
     };
   } catch {
     return { subtype: null, detailsFetchedAt: null };
+  }
+}
+
+function normalizeCatalogSyncStatus(status: string): CatalogSyncStatus {
+  if (status === "queued" || status === "running" || status === "success" || status === "partial") {
+    return status;
+  }
+
+  return "failed";
+}
+
+function parseWarnings(value: string | null): string[] {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
   }
 }
 

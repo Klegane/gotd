@@ -1,6 +1,6 @@
 ## Context
 
-The current application has one implicit daily voting session per local date, an authenticated React dashboard, Google-backed users, a local SQLite database, and a BoardGameGeek-backed catalog. This change turns voting sessions into scheduled calendar entries while keeping the existing "today" flow as the default path for simple days.
+The current application has one implicit daily voting session per local date, an authenticated React dashboard, Google-backed users, a PostgreSQL database, and a BoardGameGeek-backed catalog. This change turns voting sessions into scheduled calendar entries while keeping the existing "today" flow as the default path for simple days.
 
 The feature spans data modeling, authorization, API shape, and UI. It also introduces a lightweight admin role and user-specific game preferences, so all privileged changes must be enforced server-side and covered by tests.
 

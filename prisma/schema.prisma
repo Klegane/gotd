@@ -113,12 +113,21 @@ model CatalogSyncRun {
   sourceUsername String
   status         String
   startedAt      DateTime  @default(now())
+  claimedAt      DateTime?
+  heartbeatAt    DateTime?
   completedAt    DateTime?
+  workerId       String?
+  requestedByUserId String?
+  attemptCount   Int       @default(0)
   importedCount  Int       @default(0)
   activeCount    Int       @default(0)
+  detailsRefreshedCount Int @default(0)
+  detailFailureCount Int    @default(0)
+  warningsJson   String?
   error          String?
 
   @@index([startedAt])
+  @@index([status, heartbeatAt])
 }
 
 model Location {

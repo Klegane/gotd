@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { Calendar } from "@/components/Calendar";
 import { GameCurationPanel } from "@/components/GameCurationPanel";
@@ -187,6 +187,15 @@ type VotingDashboardProps = {
   userRole: UserRole;
 };
 
+type CatalogSyncJob = {
+  id: string;
+  status: "queued" | "running" | "success" | "partial" | "failed";
+  activeCount: number;
+  detailFailureCount: number;
+  warnings: string[];
+  error: string | null;
+};
+
 const today = new Date().toISOString().slice(0, 10);
 
 const emptySessionForm: SessionForm = {
@@ -249,6 +258,8 @@ export function VotingDashboard({ userRole }: VotingDashboardProps) {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const catalogMonitorRef = useRef<{ runId: string; controller: AbortController } | null>(null);
+  const selectedSessionIdRef = useRef<string | null>(null);
 
   const isAdmin = userRole === "admin";
 
@@ -334,8 +345,12 @@ export function VotingDashboard({ userRole }: VotingDashboardProps) {
     const response = await fetch("/api/catalog");
 
     if (response.ok) {
-      const body = (await response.json()) as { games: Game[] };
+      const body = (await response.json()) as { games: Game[]; latestSync: CatalogSyncJob | null };
       setCatalogGames(body.games);
+
+      if (isAdmin && body.latestSync && isActiveCatalogSync(body.latestSync)) {
+        beginCatalogSyncMonitor(body.latestSync);
+      }
     }
   }
 
@@ -363,6 +378,16 @@ export function VotingDashboard({ userRole }: VotingDashboardProps) {
     void loadLocations();
     void loadUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    selectedSessionIdRef.current = selectedSessionId;
+  }, [selectedSessionId]);
+
+  useEffect(() => {
+    return () => {
+      catalogMonitorRef.current?.controller.abort();
+    };
   }, []);
 
   useEffect(() => {
@@ -580,45 +605,119 @@ export function VotingDashboard({ userRole }: VotingDashboardProps) {
     }
   }
 
-  async function refreshCatalog() {
+  function beginCatalogSyncMonitor(run: CatalogSyncJob) {
+    if (catalogMonitorRef.current?.runId === run.id) {
+      return;
+    }
+
+    catalogMonitorRef.current?.controller.abort();
+    const controller = new AbortController();
+    catalogMonitorRef.current = { runId: run.id, controller };
     setWorking("refresh");
-    setMessage("Actualizando catálogo de BoardGameGeek.");
+    setMessage(
+      run.status === "queued"
+        ? "Actualización de BoardGameGeek en cola. Puedes cerrar o recargar esta página."
+        : "Actualizando catálogo de BoardGameGeek. Puedes cerrar o recargar esta página."
+    );
+    void monitorCatalogSync(run, controller);
+  }
+
+  async function monitorCatalogSync(initialRun: CatalogSyncJob, controller: AbortController) {
+    let run = initialRun;
+    let consecutiveFailures = 0;
 
     try {
-      const response = await fetch("/api/catalog/refresh", { method: "POST" });
+      while (isActiveCatalogSync(run) && !controller.signal.aborted) {
+        await waitForCatalogPoll(controller.signal);
 
-      const body = (await response.json().catch(() => null)) as
-        | {
-            error?: string;
-            issues?: string[];
-            status?: "success" | "partial";
-            activeCount?: number;
-            detailFailureCount?: number;
-            warnings?: string[];
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        try {
+          const response = await fetch(`/api/catalog/refresh/${run.id}`, {
+            cache: "no-store",
+            signal: controller.signal
+          });
+          const body = (await response.json().catch(() => null)) as
+            | { run?: CatalogSyncJob; error?: string }
+            | null;
+
+          if (!response.ok || !body?.run) {
+            throw new Error(body?.error ?? "No se pudo consultar el estado de la actualización.");
           }
-        | null;
 
-      if (!response.ok) {
-        const details = body?.issues?.length ? body.issues.join("; ") : body?.error;
-        throw new Error(details ?? "Error al actualizar el catálogo.");
+          run = body.run;
+          consecutiveFailures = 0;
+        } catch (error) {
+          if (controller.signal.aborted) {
+            return;
+          }
+
+          consecutiveFailures += 1;
+
+          if (consecutiveFailures >= 5) {
+            throw error;
+          }
+        }
       }
 
-      if (selectedSessionId) {
-        await loadSession(selectedSessionId);
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      if (run.status === "failed") {
+        setMessage(run.error ?? "La actualización del catálogo ha fallado.");
+        return;
       }
 
       await loadCatalog();
-      const countMessage =
-        typeof body?.activeCount === "number" ? ` ${body.activeCount} juegos activos.` : ".";
-      const warningMessage = body?.warnings?.length ? ` Avisos: ${body.warnings.join("; ")}` : "";
-      setMessage(
-        body?.status === "partial"
-          ? `Catálogo actualizado parcialmente.${countMessage}${warningMessage}`
-          : `Catálogo actualizado.${countMessage}`
-      );
+
+      if (catalogMonitorRef.current?.runId !== run.id) {
+        return;
+      }
+
+      const currentSessionId = selectedSessionIdRef.current;
+
+      if (currentSessionId) {
+        await loadSession(currentSessionId);
+      }
+
+      setMessage(catalogSyncCompletionMessage(run));
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "No se pudo seguir el estado de la actualización. El trabajo continúa en el servidor."
+        );
+      }
+    } finally {
+      if (catalogMonitorRef.current?.runId === run.id) {
+        catalogMonitorRef.current = null;
+        setWorking(null);
+      }
+    }
+  }
+
+  async function refreshCatalog() {
+    setWorking("refresh");
+    setMessage("Encolando actualización de BoardGameGeek.");
+
+    try {
+      const response = await fetch("/api/catalog/refresh", { method: "POST" });
+      const body = (await response.json().catch(() => null)) as
+        | { run?: CatalogSyncJob; reused?: boolean; error?: string; issues?: string[] }
+        | null;
+
+      if (!response.ok || !body?.run) {
+        const details = body?.issues?.length ? body.issues.join("; ") : body?.error;
+        throw new Error(details ?? "Error al encolar la actualización del catálogo.");
+      }
+
+      beginCatalogSyncMonitor(body.run);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Error al actualizar el catálogo.");
-    } finally {
       setWorking(null);
     }
   }
@@ -1654,6 +1753,39 @@ export function formPayload(form: SessionForm) {
     allowPlayerProposals: form.allowPlayerProposals,
     invitedUserIds: form.invitedUserIds
   };
+}
+
+function isActiveCatalogSync(run: CatalogSyncJob): boolean {
+  return run.status === "queued" || run.status === "running";
+}
+
+function catalogSyncCompletionMessage(run: CatalogSyncJob): string {
+  const countMessage = ` ${run.activeCount} juegos activos.`;
+  const warningMessage = run.warnings.length > 0 ? ` Avisos: ${run.warnings.join("; ")}` : "";
+
+  return run.status === "partial"
+    ? `Catálogo actualizado parcialmente.${countMessage}${warningMessage}`
+    : `Catálogo actualizado.${countMessage}`;
+}
+
+function waitForCatalogPoll(signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, 2_000);
+
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 function shiftDate(localDate: string, days: number): string {

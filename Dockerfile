@@ -15,7 +15,7 @@ ARG GOOGLE_CLIENT_ID=build-placeholder-client-id
 ARG GOOGLE_CLIENT_SECRET=build-placeholder-client-secret
 ARG BGG_USERNAME=build-placeholder-bgg-user
 ARG BGG_API_TOKEN=build-placeholder-bgg-token
-ARG DATABASE_URL=file:./build.db
+ARG DATABASE_URL=postgresql://postgres:postgres@localhost:5432/build_placeholder?schema=public
 ARG APP_TIMEZONE=Europe/Madrid
 ARG NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=
 ENV APP_URL=$APP_URL

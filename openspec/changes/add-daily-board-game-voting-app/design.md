@@ -42,9 +42,9 @@ Alternatives considered:
 - Client-only Google sign-in tokens: faster to prototype, but pushes more trust and token verification work into custom code.
 - Username/password accounts: simpler locally, but does not satisfy the Google login requirement.
 
-### Use SQLite as the first local database
+### Use PostgreSQL for durable application state
 
-Use SQLite with an ORM/migration tool and store the database file in a Docker volume, for example `/data/app.db`. SQLite is enough for a small group voting app, is easy to back up, and avoids operating a second database container.
+Use PostgreSQL with Prisma for application state. PostgreSQL provides the row locking, partial unique indexes, and concurrent access needed by voting flows and the durable catalog-sync queue.
 
 Core tables:
 
@@ -63,7 +63,7 @@ Important constraints:
 
 Alternatives considered:
 
-- Postgres in Docker Compose: stronger concurrency and easier future analytics, but more operational weight for a local home app.
+- SQLite: simple local operation, but it does not provide the locking and multi-instance coordination required by the durable worker.
 - JSON files: easy initially, but fragile for concurrent voting, history, and auth sessions.
 
 ### Import BoardGameGeek collections through a backend sync service
@@ -75,6 +75,8 @@ The backend will import from the configured BoardGameGeek collection using `BGG_
 The sync service will:
 
 - Run on explicit refresh from an administrator.
+- Persist refresh requests as queued jobs, return their id immediately, and expose a status endpoint for resumable UI polling.
+- Claim jobs atomically with a renewable database lease so process restarts and multiple app instances do not lose or duplicate work.
 - Parse BoardGameGeek XML server-side and upsert games by BGG id.
 - Enrich imported games through `/xmlapi2/thing?stats=1` in batches of at most 20 ids.
 - Cache detail responses locally for seven days while checking collection membership on every refresh.
@@ -102,7 +104,7 @@ Provide a Dockerfile and Docker Compose file that run the app with a persisted d
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `BGG_USERNAME`
-- `DATABASE_URL` or `DB_PATH`
+- `DATABASE_URL`
 - `APP_TIMEZONE`
 
 For LAN access, the configured Google OAuth redirect URI must match the hostname and scheme users will use. If the app is accessed beyond `localhost`, HTTPS or a local reverse proxy may be required depending on the Google OAuth client configuration.
@@ -111,10 +113,10 @@ For LAN access, the configured Google OAuth redirect URI must match the hostname
 
 - Google OAuth is awkward for purely local LAN deployments -> document exact redirect URI setup and keep `APP_URL` the single source of truth.
 - BoardGameGeek may throttle, queue, or temporarily fail collection exports -> use server-side retries, import status, and last-successful catalog caching.
-- SQLite has limited write concurrency -> acceptable for small groups; unique constraints and short transactions reduce contention.
+- PostgreSQL availability is required for requests and background jobs -> use a managed or separately backed-up database and expose readiness failures.
 - Imported BGG data can change or disappear -> upsert by BGG id and deactivate missing games instead of deleting them.
 - Daily voting depends on local dates -> use a configured app timezone and store both local date and timestamps.
-- Docker volume loss would lose history -> document backup/export for the SQLite file.
+- Database loss would remove history -> document provider backups or `pg_dump`.
 
 ## Migration Plan
 

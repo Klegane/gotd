@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { getRequiredUser } from "@/server/auth";
-import { syncBoardGameGeekCatalog } from "@/server/bgg";
+import { enqueueCatalogSync } from "@/server/bgg";
+import { wakeCatalogSyncWorker } from "@/server/catalog-sync-worker";
 import { ConfigurationError } from "@/server/env";
 import { configurationProblem, forbidden, serverProblem, unauthorized } from "@/server/http";
 
@@ -19,8 +20,21 @@ export async function POST() {
   }
 
   try {
-    const result = await syncBoardGameGeekCatalog();
-    return NextResponse.json(result);
+    const result = await enqueueCatalogSync(user.id);
+    wakeCatalogSyncWorker();
+
+    return NextResponse.json(
+      {
+        run: result.run,
+        reused: !result.created
+      },
+      {
+        status: 202,
+        headers: {
+          Location: `/api/catalog/refresh/${result.run.id}`
+        }
+      }
+    );
   } catch (error) {
     if (error instanceof ConfigurationError) {
       return configurationProblem(error.issues);
