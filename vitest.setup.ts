@@ -5,5 +5,6 @@ process.env.NEXTAUTH_SECRET ??= process.env.AUTH_SECRET;
 process.env.GOOGLE_CLIENT_ID ??= "test-google-client-id";
 process.env.GOOGLE_CLIENT_SECRET ??= "test-google-client-secret";
 process.env.BGG_USERNAME ??= "test-bgg-user";
+process.env.BGG_API_TOKEN ??= "test-bgg-api-token";
 process.env.DATABASE_URL ??= "file:./test.db";
 process.env.APP_TIMEZONE ??= "Europe/Madrid";

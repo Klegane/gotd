@@ -1,15 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: BoardGameGeek collection import
-The system SHALL import available board games from a configured BoardGameGeek user collection without requiring a BoardGameGeek authentication token and store them in the local catalog.
+The system SHALL import available board games from a configured BoardGameGeek user collection through XML API2 with a registered application Bearer token and store them in the local catalog.
 
 #### Scenario: Catalog refresh succeeds
 - **WHEN** an authenticated user starts a catalog refresh and BoardGameGeek returns collection data
 - **THEN** the system stores new games, updates existing games by BoardGameGeek id, records sync metadata, and makes the refreshed catalog available locally
 
-#### Scenario: Catalog refresh uses browser collection response
-- **WHEN** a BoardGameGeek geekcollection response includes board game links with ids, titles, and published years
-- **THEN** the system imports those games into the local catalog without requiring a BoardGameGeek token
+#### Scenario: Catalog refresh authenticates with BoardGameGeek
+- **WHEN** the backend requests collection or game detail data from BoardGameGeek XML API2
+- **THEN** the system sends the configured application token in the Authorization Bearer header without exposing it to the browser
 
 #### Scenario: Catalog item disappears from latest import
 - **WHEN** a previously imported game is absent from a later successful BoardGameGeek import

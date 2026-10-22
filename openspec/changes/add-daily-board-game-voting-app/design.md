@@ -2,7 +2,7 @@
 
 The repository currently contains only OpenSpec artifacts, so this change introduces the first application architecture. The product will run on a local machine, preferably through Docker, while still needing outbound access to Google for authentication and BoardGameGeek for game catalog data.
 
-BoardGameGeek exposes public collection data through both XML API2 and the browser collection page. The implementation can import from a no-token `geekcollection.php?ajax=1&action=collectionpage...` response, while retaining XML API2 fallback behavior. BGG collection responses can be throttled or unavailable, so the application must treat imports as backend sync jobs with retries and local caching, not as blocking frontend requests.
+BoardGameGeek exposes collection and game data through XML API2. Registered applications must authenticate each request with an application Bearer token. BGG collection responses can be queued, throttled, or unavailable, so the application must treat imports as backend sync jobs with retries and local caching, not as blocking frontend requests.
 
 ## Goals / Non-Goals
 
@@ -68,20 +68,18 @@ Alternatives considered:
 
 ### Import BoardGameGeek collections through a backend sync service
 
-The backend will import from the configured BoardGameGeek collection without requiring a BGG token. If `BGG_COLLECTION_URL` is set, the app will request that exact `geekcollection.php` AJAX URL and parse board game ids, names, and years from the returned HTML. Otherwise it builds the same browser collection request from `BGG_USERNAME` and optional `BGG_USER_ID`, initially targeting owned board games and excluding expansions by default.
-
-If the browser collection response cannot produce games, the backend can fall back to the XML API2 collection endpoint:
+The backend will import from the configured BoardGameGeek collection using `BGG_USERNAME` and the server-only `BGG_API_TOKEN`. Every request will send `Authorization: Bearer <token>` to the XML API2 host without a `www` prefix, initially targeting owned board games and excluding expansions by default:
 
 `/xmlapi2/collection?username=<bggUser>&own=1&subtype=boardgame&excludesubtype=boardgameexpansion&stats=1`
 
 The sync service will:
 
 - Run on explicit refresh from an authenticated user and optionally on startup if no catalog exists.
-- Parse BoardGameGeek HTML or XML server-side and upsert games by BGG id.
-- Enrich imported games from each public BoardGameGeek game page by parsing `GEEK.geekitemPreload`, because the no-token XML detail endpoint can reject unauthenticated requests in some environments.
+- Parse BoardGameGeek XML server-side and upsert games by BGG id.
+- Enrich imported games through `/xmlapi2/thing?stats=1` in batches of at most 20 ids.
 - Mark games absent from the latest successful import as inactive rather than deleting them, preserving vote history.
 - Handle `202` responses by retrying with delay.
-- Back off on `500` and `503`, with at least several seconds between BGG requests.
+- Back off on throttling and transient server failures, with delays between BGG requests.
 - Keep the last successful catalog visible if BGG is unavailable.
 
 Alternatives considered:

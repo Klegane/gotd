@@ -28,8 +28,7 @@ NEXTAUTH_SECRET=<same-as-auth-secret>
 GOOGLE_CLIENT_ID=<google-client-id>
 GOOGLE_CLIENT_SECRET=<google-client-secret>
 BGG_USERNAME=<boardgamegeek-username>
-BGG_USER_ID=<optional-boardgamegeek-user-id>
-BGG_COLLECTION_URL=<optional-full-geekcollection-url>
+BGG_API_TOKEN=<boardgamegeek-application-token>
 DATABASE_URL=file:/data/app.db
 APP_TIMEZONE=Europe/Madrid
 BGG_INCLUDE_EXPANSIONS=false
@@ -37,7 +36,7 @@ ADMIN_EMAILS=admin@example.com
 NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=<optional-google-maps-browser-key>
 ```
 
-`BGG_COLLECTION_URL` can point at a full `geekcollection.php?ajax=1&action=collectionpage...` URL. When it is set, the app imports game ids, names, and published years from that HTML collection response without needing a BoardGameGeek token. If it is not set, the app builds the same no-token collection request from `BGG_USERNAME` and optional `BGG_USER_ID`.
+`BGG_API_TOKEN` is the application token created under [BoardGameGeek Applications](https://boardgamegeek.com/applications). The backend sends it as a Bearer token to XML API2; it must never be exposed to browser code.
 
 `ADMIN_EMAILS` is a comma-separated list of Google account emails that should become admins, for example `ana@example.com,erik@example.com`. The app promotes matching users when they sign in or when their session is loaded.
 
