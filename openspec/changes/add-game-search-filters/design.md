@@ -37,7 +37,7 @@ Extend BGG detail parsing to extract link labels for:
 - `boardgamedesigner`
 - `boardgameartist`
 
-The parser should accept both XML `link` nodes from the BoardGameGeek thing response and equivalent link structures from the public page preload data when present. Values should be deduplicated, trimmed, and stored as display labels from BGG. Existing behavior for images, players, playing time, weight, expansion status, and parent/expansion links stays intact.
+The parser accepts XML `link` nodes from the official BoardGameGeek XML API2 thing response. Values are deduplicated, trimmed, and stored as display labels from BGG. Existing behavior for images, players, playing time, weight, expansion status, and parent/expansion links stays intact. Public-page preload data and HTML scraping are not used.
 
 Alternative considered: maintain separate relational tables for taxonomy and credits. That is more queryable long term, but this app currently filters client-side over the active catalog payload, so arrays are the lower-complexity fit.
 
@@ -65,7 +65,7 @@ Alternative considered: a single large reusable filter component for both layout
 ## Risks / Trade-offs
 
 - Existing catalog rows lack taxonomy and credit values until refreshed -> default arrays to empty and keep games visible when metadata filters are inactive.
-- BGG detail structures may differ between XML and public page preload data -> isolate extraction helpers and cover XML/page examples in `tests/bgg.test.ts`.
+- BGG XML detail structures may contain optional or repeated nodes -> isolate extraction helpers and cover representative XML examples in `tests/bgg.test.ts`.
 - Designer and artist lists can be long -> keep filter groups collapsible or visually compact and avoid expanding all options at once in narrow picker menus.
 - Client-side filtering over large catalogs can become expensive -> memoize option derivation and filtered results, and avoid recomputing normalized labels inside tight loops where practical.
 - UI density may make the picker feel crowded -> keep primary search at the top and secondary filters grouped below it, preserving keyboard navigation and no-overlap responsive layout.

@@ -15,6 +15,12 @@ npm run dev
 
 The app expects the variables from `.env.example`. For Docker and Google OAuth setup, see `docs/local-deployment.md`.
 
+## BoardGameGeek Catalog
+
+Catalog refreshes are performed server-side through the official BoardGameGeek XML API2. Set `BGG_USERNAME` and the application token `BGG_API_TOKEN` in the deployed machine's `.env`; the token is sent only as an `Authorization: Bearer` header and is never exposed to the browser.
+
+Only administrators can start a refresh. The collection membership is checked on every refresh, while `/thing` details are requested in batches of at most 20 and cached locally for seven days. BGG queue, throttling, network, and temporary server responses are retried with backoff. A recoverable detail failure produces a visible partial result and preserves cached metadata. Catalog pages and voting flows read the synchronized database instead of calling BGG directly.
+
 ## Admin Setup
 
 Add one or more Google account emails to `ADMIN_EMAILS` in `.env` to enable session planning controls:

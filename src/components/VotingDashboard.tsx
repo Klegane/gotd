@@ -587,9 +587,20 @@ export function VotingDashboard({ userRole }: VotingDashboardProps) {
     try {
       const response = await fetch("/api/catalog/refresh", { method: "POST" });
 
+      const body = (await response.json().catch(() => null)) as
+        | {
+            error?: string;
+            issues?: string[];
+            status?: "success" | "partial";
+            activeCount?: number;
+            detailFailureCount?: number;
+            warnings?: string[];
+          }
+        | null;
+
       if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(body?.error ?? "Error al actualizar el catálogo.");
+        const details = body?.issues?.length ? body.issues.join("; ") : body?.error;
+        throw new Error(details ?? "Error al actualizar el catálogo.");
       }
 
       if (selectedSessionId) {
@@ -597,7 +608,14 @@ export function VotingDashboard({ userRole }: VotingDashboardProps) {
       }
 
       await loadCatalog();
-      setMessage("Catálogo actualizado.");
+      const countMessage =
+        typeof body?.activeCount === "number" ? ` ${body.activeCount} juegos activos.` : ".";
+      const warningMessage = body?.warnings?.length ? ` Avisos: ${body.warnings.join("; ")}` : "";
+      setMessage(
+        body?.status === "partial"
+          ? `Catálogo actualizado parcialmente.${countMessage}${warningMessage}`
+          : `Catálogo actualizado.${countMessage}`
+      );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Error al actualizar el catálogo.");
     } finally {

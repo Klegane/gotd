@@ -74,12 +74,14 @@ The backend will import from the configured BoardGameGeek collection using `BGG_
 
 The sync service will:
 
-- Run on explicit refresh from an authenticated user and optionally on startup if no catalog exists.
+- Run on explicit refresh from an administrator.
 - Parse BoardGameGeek XML server-side and upsert games by BGG id.
 - Enrich imported games through `/xmlapi2/thing?stats=1` in batches of at most 20 ids.
+- Cache detail responses locally for seven days while checking collection membership on every refresh.
 - Mark games absent from the latest successful import as inactive rather than deleting them, preserving vote history.
 - Handle `202` responses by retrying with delay.
 - Back off on throttling and transient server failures, with delays between BGG requests.
+- Report recoverable detail failures as a partial sync instead of silently treating them as success.
 - Keep the last successful catalog visible if BGG is unavailable.
 
 Alternatives considered:

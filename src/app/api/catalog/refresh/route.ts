@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getRequiredUser } from "@/server/auth";
 import { syncBoardGameGeekCatalog } from "@/server/bgg";
 import { ConfigurationError } from "@/server/env";
-import { configurationProblem, serverProblem, unauthorized } from "@/server/http";
+import { configurationProblem, forbidden, serverProblem, unauthorized } from "@/server/http";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +12,10 @@ export async function POST() {
 
   if (!user) {
     return unauthorized();
+  }
+
+  if (user.role !== "admin") {
+    return forbidden("Admin access required");
   }
 
   try {

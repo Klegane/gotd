@@ -36,7 +36,7 @@ ADMIN_EMAILS=admin@example.com
 NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=<optional-google-maps-browser-key>
 ```
 
-`BGG_API_TOKEN` is the application token created under [BoardGameGeek Applications](https://boardgamegeek.com/applications). The backend sends it as a Bearer token to XML API2; it must never be exposed to browser code.
+`BGG_API_TOKEN` is the application token created under [BoardGameGeek Applications](https://boardgamegeek.com/applications). The real token must be configured in the `.env` of every machine that runs the web application. The backend sends it as a Bearer token to XML API2; it must never be exposed to browser code or committed to Git.
 
 `ADMIN_EMAILS` is a comma-separated list of Google account emails that should become admins, for example `ana@example.com,erik@example.com`. The app promotes matching users when they sign in or when their session is loaded.
 
@@ -54,7 +54,7 @@ node -e "console.log(crypto.randomBytes(32).toString('hex'))"
 docker compose up --build
 ```
 
-Open the configured `APP_URL`, sign in with Google, and press `Refresh BGG` to import the configured BoardGameGeek collection.
+Open the configured `APP_URL`, sign in with an administrator account, and press `Refresh BGG` to import the configured BoardGameGeek collection. The refresh always checks collection membership. Detailed game metadata is cached for seven days and refreshed through XML API2 in batches, so a normal refresh does not repeatedly download every game. Temporary detail failures are shown as a partial refresh and keep the last cached metadata.
 
 ## Calendar, Admin Sessions, and Preferences
 
